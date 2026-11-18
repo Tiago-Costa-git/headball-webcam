@@ -1,0 +1,5 @@
+pygame-ce>=2.5
+numpy
+opencv-python
+# opcional: mostra o nome das câmaras no ecrã da webcam
+# cv2-enumerate-cameras
