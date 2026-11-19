@@ -74,6 +74,16 @@ O projeto é desenvolvido em sprints (Scrum).
 - [ ] Sprint 3: README final e 5 casos de teste
 - [ ] Retro Exposition: 15/12/2026
 
+## Uso de IA
+
+| Ferramenta | Para que foi usada | Como verificámos |
+|---|---|---|
+| Claude (Anthropic) | Apoio na escrita de partes do código do jogo | Lemos e percebemos o código antes de o integrar, e testámos no jogo |
+| Claude (Anthropic) | Deteção e correção de erros (por exemplo, as animações do cenário passavam por cima das balizas) | Aplicámos as correções e testámos o jogo nos 5 estádios |
+| Claude (Anthropic) | Apoio na documentação: mapa de funções, nota de progresso e README, feitos a partir do código | Revimos os textos e comparámos o mapa com o código para garantir que não faltava nenhuma função |
+
+A ideia, as decisões de design, os testes e a integração final foram feitos pela equipa.
+
 ## Equipa
 
 - **Tiago Costa**
