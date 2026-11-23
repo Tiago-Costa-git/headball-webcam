@@ -40,7 +40,17 @@ py -m pip install -r requirements.txt
 py headball_webcam.py
 ```
 
-No Linux ou no macOS, usa `python3` em vez de `py`.
+**No Linux (por exemplo Linux Mint) ou no macOS** o comando é `python3`, e é preciso um ambiente virtual:
+
+```bash
+sudo apt install -y python3-venv python3-tk      # só no Linux, uma vez
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python headball_webcam.py
+```
+
+Das próximas vezes basta `source .venv/bin/activate` e `python headball_webcam.py`.
 
 Sem o OpenCV o jogo funciona na mesma, mas sem as fotos da webcam.
 
@@ -52,7 +62,7 @@ Sem o OpenCV o jogo funciona na mesma, mas sem as fotos da webcam.
 | Saltar | W | ↑ | CRUZ |
 | Chutar | ESPAÇO | ENTER | QUADRADO, CÍRCULO, R1 ou R2 |
 
-**No menu:** `1` = contra o bot · `2` = 2 jogadores · `3` = competitivo · `H` = histórico · `E` = estatísticas · `N` = mudar de jogador · `B` = estádio · `C` / `V` = foto do J1 / J2 · `X` = apagar as fotos · `TAB` = controlos · `ESC` = sair
+**No menu:** `1` = contra o bot · `2` = 2 jogadores · `3` = competitivo · `H` = histórico · `E` = estatísticas · `N` = mudar de jogador · `B` = estádio · `C` / `V` = foto do J1 / J2 · `X` = apagar as fotos · `TAB` = controlos · `F11` = ecrã inteiro · `ESC` = sair
 
 **No ecrã da webcam:** `TAB` = trocar de câmara · `ESPAÇO` = tirar a foto · `F` = escolher um ficheiro · `ESC` = cancelar
 

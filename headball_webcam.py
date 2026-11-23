@@ -1526,7 +1526,15 @@ def save_stadium_index(i):
         pass
 
 
+# O texto do ecrã de baixa resolução é desenhado à resolução real da janela (nítido), por cima de tudo.
+# main() regista aqui a superfície de baixa resolução e a letra de alta resolução de cada letra.
+TEXTO_HD = {"low": None, "fontes": {}, "fila": []}
+
+
 def ptext(surf, font, msg, x, y, color=WHITE, align="center", shadow=True):
+    if surf is TEXTO_HD["low"] and id(font) in TEXTO_HD["fontes"]:    # fica para desenhar nítido no fim
+        TEXTO_HD["fila"].append((TEXTO_HD["fontes"][id(font)], msg, x * PX, y * PX, color, align, shadow))
+        return
     img = font.render(msg, False, color)
     r = img.get_rect()
     if align == "center":
@@ -1539,6 +1547,32 @@ def ptext(surf, font, msg, x, y, color=WHITE, align="center", shadow=True):
         sh = font.render(msg, False, OUTLINE)
         surf.blit(sh, r.move(1, 1))
     surf.blit(img, r)
+
+
+def desenhar_textos(screen, ox=0, oy=0):
+    """Desenha na janela, à resolução real, todo o texto guardado por ptext neste frame e esvazia a fila."""
+    for font, msg, x, y, color, align, shadow in TEXTO_HD["fila"]:
+        img = font.render(msg, True, color)
+        r = img.get_rect()
+        if align == "center":
+            r.center = (x + ox, y + oy)
+        elif align == "left":
+            r.midleft = (x + ox, y + oy)
+        else:
+            r.midright = (x + ox, y + oy)
+        if shadow:
+            screen.blit(font.render(msg, True, OUTLINE), r.move(2, 2))
+        screen.blit(img, r)
+    TEXTO_HD["fila"].clear()
+
+
+def alternar_ecra_inteiro():
+    """Liga ou desliga o ecrã inteiro (F11). Devolve uma mensagem para o menu."""
+    try:
+        pygame.display.toggle_fullscreen()
+        return "Ecrã inteiro: F11 para sair." if pygame.display.is_fullscreen() else "Modo janela."
+    except (pygame.error, AttributeError):
+        return "O ecrã inteiro não é suportado neste computador."
 
 
 def draw_head(screen, sprite, cx, cy, flip=False):
@@ -1861,30 +1895,28 @@ class Match:
 
 def draw_controls(low, fn, pads):
     """Aba de controlos do menu."""
-    panel = pygame.Surface((LW - 16, 140), pygame.SRCALPHA)
-    panel.fill((8, 10, 30, 210))
-    low.blit(panel, (8, 5))
-    ptext(low, fn["big"], "CONTROLOS", LW // 2, 16, (255, 230, 80))
+    painel(low, 8, 3, LW - 16, 154, 215)
+    ptext(low, fn["big"], "CONTROLOS", LW // 2, 14, (255, 230, 80))
 
     def block(x, y, title, color, lines, off):
         ptext(low, fn["sm"], title, x, y, color, align="left")
         for i, (k, v) in enumerate(lines):
-            ptext(low, fn["sm"], k, x, y + 10 + i * 9, WHITE, align="left")
-            ptext(low, fn["sm"], v, x + off, y + 10 + i * 9, (170, 210, 255), align="left")
-    block(16, 32, "JOGADOR 1  (teclado)", (130, 180, 255), [("A / D", "mover"), ("W", "saltar"), ("ESPAÇO", "chutar")], 52)
-    block(146, 32, "JOGADOR 2  (teclado)", (255, 140, 140),
-          [("SETAS ESQ / DIR", "mover"), ("SETA CIMA", "saltar"), ("ENTER", "chutar")], 92)
-    block(16, 75, "COMANDO  (PS5, PS4, Xbox...)", (160, 230, 160),
-          [("Analógico esquerdo ou setas", "mover"), ("CRUZ  (X)", "saltar"),
-           ("QUADRADO, CÍRCULO, R1 ou R2", "chutar")], 168)
-    for i, t in enumerate(("Menu:  CRUZ = 1 jogador,  TRIÂNGULO = 2 jogadores",
-                           "QUADRADO = estádio,  OPTIONS = controlos",
-                           "No jogo:  CREATE (Share) = voltar ao menu")):
-        ptext(low, fn["sm"], t, 16, 114 + i * 9, (255, 240, 150), align="left")
+            ptext(low, fn["sm"], k, x, y + 10 + i * 10, WHITE, align="left")
+            ptext(low, fn["sm"], v, x + off, y + 10 + i * 10, (170, 210, 255), align="left")
+    block(16, 29, "JOGADOR 1  (teclado)", (130, 180, 255), [("A / D", "mover"), ("W", "saltar"), ("ESPAÇO", "chutar")], 50)
+    block(140, 29, "JOGADOR 2  (teclado)", (255, 140, 140),
+          [("SETAS ESQ/DIR", "mover"), ("SETA CIMA", "saltar"), ("ENTER", "chutar")], 86)
+    block(16, 72, "COMANDO  (PS5, PS4, Xbox...)", (160, 230, 160),
+          [("Analógico esquerdo ou setas", "mover"), ("CRUZ (X)", "saltar"),
+           ("QUADRADO, CÍRCULO, R1, R2", "chutar")], 168)
+    for i, t in enumerate(("Menu: CRUZ = vs Bot  ·  TRIÂNGULO = 2 jogadores",
+                           "QUADRADO = estádio  ·  OPTIONS = controlos",
+                           "No jogo: CREATE = menu  ·  F11 = ecrã inteiro")):
+        ptext(low, fn["sm"], t, 16, 114 + i * 10, (255, 240, 150), align="left")
     names = ", ".join(pads.names())
     status = ("Comandos: " + (names[:20] + ("…" if len(names) > 20 else ""))) if names else "Nenhum comando ligado"
-    ptext(low, fn["sm"], status, 16, 141, (150, 230, 160), align="left")
-    ptext(low, fn["sm"], "TAB / ESC  voltar", LW - 16, 141, WHITE, align="right")
+    ptext(low, fn["sm"], status, 16, 148, (150, 230, 160), align="left")
+    ptext(low, fn["sm"], "TAB / ESC  voltar", LW - 16, 148, WHITE, align="right")
 
 
 def painel(low, x, y, w, h, alpha=200):
@@ -1940,14 +1972,14 @@ def draw_nome(low, fn, texto, erro, tick):
 
 def draw_historico(low, fn, nome, hist):
     """Ecrã com as últimas 10 partidas do jogador."""
-    painel(low, 8, 5, LW - 16, 145, 215)
+    painel(low, 8, 3, LW - 16, 152, 215)
     ptext(low, fn["big"], "HISTÓRICO", LW // 2, 16, (255, 230, 80))
-    ptext(low, fn["sm"], nome, LW // 2, 30, (160, 200, 255))
+    ptext(low, fn["sm"], nome, LW // 2, 33, (160, 200, 255))
     if not hist:
         ptext(low, fn["mid"], "Ainda não jogaste nenhuma partida.", LW // 2, 70)
     cores = {"V": (120, 230, 120), "E": (255, 220, 100), "D": (255, 120, 120)}
     for i, h in enumerate(hist[:10]):
-        y = 42 + i * 10
+        y = 45 + i * 10
         modo = f"Comp N{h['nivel']}" if h["nivel"] else {"2 jogadores": "2 jog."}.get(h["modo"], h["modo"])
         data = f"{h['data'][8:10]}/{h['data'][5:7]}"
         ptext(low, fn["sm"], data, 16, y, (200, 200, 200), align="left")
@@ -1955,36 +1987,36 @@ def draw_historico(low, fn, nome, hist):
         ptext(low, fn["sm"], h["adversario"][:13], 92, y, WHITE, align="left")
         ptext(low, fn["sm"], f"{h['golos_marcados']} - {h['golos_sofridos']}", 186, y, WHITE)
         ptext(low, fn["sm"], bd.TEXTO_RESULTADO[h["resultado"]], LW - 16, y, cores[h["resultado"]], align="right")
-    ptext(low, fn["sm"], "ESC  voltar", LW // 2, 143, WHITE)
+    ptext(low, fn["sm"], "ESC  voltar", LW // 2, 146, WHITE)
 
 
 def draw_estatisticas(low, fn, nome, est, top):
     """Ecrã com as estatísticas do jogador e o top 5 de todos os jogadores."""
-    painel(low, 8, 5, LW - 16, 145, 215)
+    painel(low, 8, 3, LW - 16, 154, 215)
     ptext(low, fn["big"], "ESTATÍSTICAS", LW // 2, 16, (255, 230, 80))
-    ptext(low, fn["sm"], nome, 80, 31, (160, 200, 255))
+    ptext(low, fn["sm"], nome, 80, 33, (160, 200, 255))
     linhas = [("Pontos", est["pontos"]), ("Partidas", est["partidas"]),
               ("Vitórias", f"{est['vitorias']}  ({est['percentagem_vitorias']}%)"), ("Empates", est["empates"]),
               ("Derrotas", est["derrotas"]), ("Golos marcados", est["golos_marcados"]),
               ("Golos sofridos", est["golos_sofridos"]), ("Média de golos", est["media_golos"]),
               ("Vitórias seguidas", est["melhor_sequencia"]), ("Melhor nível comp.", est["melhor_nivel"] or "-")]
     for i, (k, v) in enumerate(linhas):
-        y = 42 + i * 9
+        y = 44 + i * 10
         ptext(low, fn["sm"], k, 18, y, (200, 200, 200), align="left")
         ptext(low, fn["sm"], str(v), 140, y, WHITE, align="right")
-    pygame.draw.rect(low, (80, 90, 140), (150, 30, 1, 100))
-    ptext(low, fn["sm"], "TOP 5 (pontos)", 210, 31, (255, 230, 80))
+    pygame.draw.rect(low, (80, 90, 140), (150, 30, 1, 108))
+    ptext(low, fn["sm"], "TOP 5 (pontos)", 210, 33, (255, 230, 80))
     for i, (n, pts, vit) in enumerate(top):
-        y = 42 + i * 11
+        y = 46 + i * 12
         cor = (160, 230, 160) if n.lower() == nome.lower() else WHITE
         ptext(low, fn["sm"], f"{i + 1}. {n}", 158, y, cor, align="left")
         ptext(low, fn["sm"], str(pts), LW - 18, y, cor, align="right")
-    ptext(low, fn["sm"], "ESC  voltar", LW // 2, 143, WHITE)
+    ptext(low, fn["sm"], "ESC  voltar", LW // 2, 148, WHITE)
 
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((W, H))
+    screen = pygame.display.set_mode((W, H), pygame.SCALED)    # SCALED: o ecrã inteiro mantém as proporções
     pygame.display.set_caption("Head Ball - cabeças da webcam")
     clock = pygame.time.Clock()
     low = pygame.Surface((LW, LH))
@@ -1993,8 +2025,10 @@ def main():
     bg, anim = backgrounds[bg_i][1], backgrounds[bg_i][2]
     pads = Pads()
     f_cap = pygame.font.SysFont("arial", 22, bold=True)
-    fn = {"big": pygame.font.Font(None, 34), "score": pygame.font.Font(None, 26),
-          "mid": pygame.font.Font(None, 20), "sm": pygame.font.Font(None, 15), "menu": pygame.font.Font(None, 17)}
+    tamanhos = {"big": 34, "score": 26, "mid": 20, "sm": 15, "menu": 17}
+    fn = {k: pygame.font.Font(None, t) for k, t in tamanhos.items()}
+    TEXTO_HD["low"] = low                                       # texto nítido: a mesma letra, PX vezes maior
+    TEXTO_HD["fontes"] = {id(fn[k]): pygame.font.Font(None, t * PX) for k, t in tamanhos.items()}
     heads, ports = load_heads()
 
     try:                                                        # base de dados das contas
@@ -2011,7 +2045,7 @@ def main():
     pts = None                                                  # pontos do jogador (lidos da base de dados quando mudam)
     m = None
     tick = 0
-    teclas_menu = {pygame.K_ESCAPE, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_TAB, pygame.K_x,
+    teclas_menu = {pygame.K_ESCAPE, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_TAB, pygame.K_x, pygame.K_F11,
                    pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_h, pygame.K_e, pygame.K_n}
 
     def nova_partida(modo, n=1):
@@ -2024,6 +2058,9 @@ def main():
             if e.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            if e.type == pygame.KEYDOWN and e.key == pygame.K_F11:  # ecrã inteiro em qualquer ecrã
+                msg = alternar_ecra_inteiro()
+                continue
             if state == "nome" and e.type == pygame.KEYDOWN:     # escrever o nome
                 if e.key == pygame.K_RETURN:
                     ok, res = bd.validar_nome(nome_txt)
@@ -2123,8 +2160,8 @@ def main():
                 run_anim(anim, low, tick)
 
         if state == "menu":
-            painel(low, 35, 6, LW - 70, 112, 150)
-            ptext(low, fn["big"], "HEAD BALL", LW // 2, 20, (255, 230, 80))
+            painel(low, 30, 5, LW - 60, 116, 150)
+            ptext(low, fn["big"], "HEAD BALL", LW // 2, 18, (255, 230, 80))
             if conta:
                 if pts is None:
                     pts = bd.ler_estatisticas(conn, conta[0])["pontos"]
@@ -2133,12 +2170,12 @@ def main():
                 ptext(low, fn["sm"], "cabeças da webcam", LW // 2, 35, (160, 200, 255))
             items = ["1  vs Bot        2  2 jogadores", "3  Competitivo contra bots",
                      "H  histórico     E  estatísticas", f"N  mudar jogador   B  {backgrounds[bg_i][0]}",
-                     "C / V  fotos     X  apagar fotos", "TAB  controlos     ESC  sair"]
+                     "C / V  fotos     X  apagar fotos", "TAB controlos  F11 ecrã inteiro  ESC sair"]
             for i, t in enumerate(items):
-                ptext(low, fn["menu"], t, LW // 2, 47 + i * 10)
+                ptext(low, fn["menu"], t, LW // 2, 47 + i * 11)
             if msg:
                 mm = msg if len(msg) <= 60 else msg[:59] + "…"
-                ptext(low, fn["sm"], mm, LW // 2, 110, (255, 240, 120))
+                ptext(low, fn["sm"], mm, LW // 2, 113, (255, 240, 120))
             gl = I(GROUND)
             for i, cx in enumerate((LW // 2 - 62, LW // 2 + 62)):
                 heads_draw.append((heads[i], cx * PX, (gl - 14) * PX, False))
@@ -2187,24 +2224,24 @@ def main():
                 ptext(low, fn["mid"], "BOLA AO AR!", cx, 66, (255, 230, 80))
                 ptext(low, fn["big"], str((m.jumpball + 59) // 60), cx, 83, WHITE)
             if state == "over":
-                pygame.draw.rect(low, OUTLINE, (cx - 110, 40, 220, 66))
-                pygame.draw.rect(low, (30, 36, 80), (cx - 109, 41, 218, 64))
+                pygame.draw.rect(low, OUTLINE, (cx - 110, 44, 220, 64))
+                pygame.draw.rect(low, (30, 36, 80), (cx - 109, 45, 218, 62))
                 r = resumo["resultado"] if resumo else bd.calcular_resultado(*m.score)
                 if m.mode == 2:
                     res = "EMPATE!" if r == "E" else f"VENCEU {m.nomes[0 if r == 'V' else 1].upper()}!"
                 else:
                     res = {"V": "GANHASTE!", "E": "EMPATE!", "D": "PERDESTE!"}[r]
-                ptext(low, fn["big"], res, cx, 54, (255, 230, 80))
+                ptext(low, fn["big"], res, cx, 57, (255, 230, 80))
                 if resumo and resumo.get("pontos") is not None:
-                    ptext(low, fn["mid"], f"+{resumo['pontos']} pontos para {m.nomes[0]}", cx, 70, (150, 230, 160))
+                    ptext(low, fn["mid"], f"+{resumo['pontos']} pontos para {m.nomes[0]}", cx, 74, (150, 230, 160))
                 if m.mode == 3 and r == "V":
-                    ptext(low, fn["sm"], f"Nível {m.nivel} superado!", cx, 84)
-                    ptext(low, fn["sm"], f"ENTER = nível {m.nivel + 1}    ESC = menu", cx, 96)
+                    ptext(low, fn["sm"], f"Nível {m.nivel} superado!", cx, 87)
+                    ptext(low, fn["sm"], f"ENTER = nível {m.nivel + 1}    ESC = menu", cx, 98)
                 elif m.mode == 3:
-                    ptext(low, fn["sm"], f"Fim da corrida: chegaste ao nível {m.nivel}", cx, 84)
-                    ptext(low, fn["sm"], "ENTER = menu", cx, 96)
+                    ptext(low, fn["sm"], f"Fim da corrida: chegaste ao nível {m.nivel}", cx, 87)
+                    ptext(low, fn["sm"], "ENTER = menu", cx, 98)
                 else:
-                    ptext(low, fn["mid"], "ENTER para voltar ao menu", cx, 86)
+                    ptext(low, fn["mid"], "ENTER para voltar ao menu", cx, 92)
 
         shake = m.shake if (m is not None and state == "game") else 0.0
         ox = oy = 0
@@ -2214,6 +2251,7 @@ def main():
         screen.blit(pygame.transform.scale(low, (W, H)), (ox, oy))
         for spr, hx, hy, flip in heads_draw:
             draw_head(screen, spr, hx + ox, hy + oy, flip)
+        desenhar_textos(screen, ox, oy)
         pygame.display.flip()
         clock.tick(60)
 
