@@ -27,6 +27,7 @@ import pygame
 
 import base_dados as bd      # contas, histórico e estatísticas (SQLite)
 import powerups as pw        # power-ups durante a partida
+import clima as cl           # chuva, trovoada, neve e calor
 
 try:
     import numpy as np
@@ -404,6 +405,7 @@ def load_heads():
 # ---------------------------------------------------------------- física
 class Ball:
     def __init__(self):
+        self.ressalto, self.atrito = 0.72, 0.985               # mudam com o clima (chuva, neve...)
         self.reset()
 
     def reset(self):
@@ -429,8 +431,8 @@ class Ball:
             self.y = GROUND - BALL_R
             if self.vy > 3:
                 self.bounce = max(self.bounce, self.vy)
-            self.vy *= -0.72
-            self.vx *= 0.985 ** f
+            self.vy *= -self.ressalto
+            self.vx *= self.atrito ** f
             if abs(self.vy) < 1.5:
                 self.vy = 0
         if self.y < BALL_R:
@@ -521,6 +523,7 @@ class Player:
         self.kick_cd = 0
         self.kick_hit = False
         self.efeitos = {}                # power-ups ativos: {"velocidade": frames que faltam, ...}
+        self.inercia = 1.0               # 1 = trava logo; perto de 0 = escorrega (neve)
         self.walk = 0.0
         self.legs = [Leg(), Leg()]      # 0 = perna que chuta (da frente), 1 = perna de trás
         for _ in range(30):
@@ -580,11 +583,12 @@ class Player:
 
     def update(self, left, right, jump, kick, speed=SPEED, face=None):
         prev_vx = self.vx
-        if "gelo" in self.efeitos:                              # congelado: ignora os comandos
+        if "gelo" in self.efeitos or "atordoado" in self.efeitos:   # congelado ou atingido por um raio
             left = right = jump = kick = False
         if "velocidade" in self.efeitos:
             speed *= pw.MULT_VELOCIDADE
-        self.vx = (right - left) * speed
+        alvo = (right - left) * speed
+        self.vx = alvo if self.inercia >= 1 else self.vx + (alvo - self.vx) * self.inercia
         if face is not None:
             self.facing = face
         elif left and not right:
@@ -1529,6 +1533,7 @@ def save_stadium_index(i):
 # O texto do ecrã de baixa resolução é desenhado à resolução real da janela (nítido), por cima de tudo.
 # main() regista aqui a superfície de baixa resolução e a letra de alta resolução de cada letra.
 TEXTO_HD = {"low": None, "fontes": {}, "fila": []}
+TEXTO_PIXEL = 2      # tamanho do "pixel" das letras: 1 = suave, 2 = pixelizado mas legível, 4 = como o cenário
 
 
 def ptext(surf, font, msg, x, y, color=WHITE, align="center", shadow=True):
@@ -1551,8 +1556,11 @@ def ptext(surf, font, msg, x, y, color=WHITE, align="center", shadow=True):
 
 def desenhar_textos(screen, ox=0, oy=0):
     """Desenha na janela, à resolução real, todo o texto guardado por ptext neste frame e esvazia a fila."""
+    def render(msg, color):                                     # letra sem suavização, ampliada: fica pixelizada
+        img = font.render(msg, False, color)
+        return pygame.transform.scale(img, (img.get_width() * TEXTO_PIXEL, img.get_height() * TEXTO_PIXEL))
     for font, msg, x, y, color, align, shadow in TEXTO_HD["fila"]:
-        img = font.render(msg, True, color)
+        img = render(msg, color)
         r = img.get_rect()
         if align == "center":
             r.center = (x + ox, y + oy)
@@ -1561,7 +1569,7 @@ def desenhar_textos(screen, ox=0, oy=0):
         else:
             r.midright = (x + ox, y + oy)
         if shadow:
-            screen.blit(font.render(msg, True, OUTLINE), r.move(2, 2))
+            screen.blit(render(msg, OUTLINE), r.move(TEXTO_PIXEL, TEXTO_PIXEL))
         screen.blit(img, r)
     TEXTO_HD["fila"].clear()
 
@@ -1803,7 +1811,7 @@ def read_inputs(keys, pad_states, mode):
 class Match:
     """Toda a lógica de uma partida (sem desenho), para ser fácil de testar."""
 
-    def __init__(self, mode, heads, nivel=1, nomes=("Jogador 1", "Jogador 2")):
+    def __init__(self, mode, heads, nivel=1, nomes=("Jogador 1", "Jogador 2"), clima="aleatorio"):
         """mode: 1 = contra o bot, 2 = dois jogadores, 3 = competitivo (bot do nível indicado)."""
         self.mode, self.nivel = mode, nivel
         self.p1 = Player(0, W * 0.25, 1, heads[0])
@@ -1815,6 +1823,7 @@ class Match:
         self.time_left = float(TEMPO_COMPETITIVO if mode == 3 else MATCH_TIME)
         self.pw = {"lista": [], "espera": 300}                  # primeiro power-up aos 5 segundos
         self.aviso, self.aviso_t = "", 0
+        self.clima = cl.novo_estado(clima, XMIN, XMAX)
         self.pause, self.banner = 0, ""
         self.parts, self.shake = [], 0.0
         self.stuck, self.last_touch, self.jumpball = 0, [99, 99], 0
@@ -1839,12 +1848,26 @@ class Match:
             self.time_left -= 1 / 60
         if self.aviso_t > 0:
             self.aviso_t -= 1
-        p1.update(*in1)
+        fis = cl.params(self.clima)                             # física do clima atual
+        ball.ressalto, ball.atrito = fis["ressalto"], fis["atrito"]
+        p1.inercia = p2.inercia = fis["inercia"]
+        p1.update(*in1, speed=SPEED * cl.velocidade(self.clima, p1))
         if self.mode in (1, 3):
             l, r, j, k = bot_controls(p2, ball, self.bot["chuto"], self.bot["salto"])
-            p2.update(l, r, j, k, speed=self.bot["velocidade"], face=-1)
+            p2.update(l, r, j, k, speed=self.bot["velocidade"] * cl.velocidade(self.clima, p2), face=-1)
         else:
-            p2.update(*in2)
+            p2.update(*in2, speed=SPEED * cl.velocidade(self.clima, p2))
+        if self.jumpball == 0:
+            for tipo, x in cl.passo_clima(self.clima, (p1, p2), ball, GROUND - BALL_R):
+                if tipo == "mudou":
+                    self.aviso, self.aviso_t = x, 150
+                elif tipo == "raio":
+                    self.shake = 9
+                    spawn(self.parts, x, GROUND - 4, 40, [(255, 255, 160), WHITE, (160, 200, 255)], 6, 8, 25, 1, 0.2)
+                elif tipo == "fogo":
+                    spawn(self.parts, x, GROUND - 4, 14, [(255, 120, 30), (255, 210, 60), (90, 80, 80)], 2.5, 5, 22, 1, -0.05)
+                elif tipo == "chapinhar":
+                    spawn(self.parts, x, GROUND - 2, 4, [(140, 190, 255), (210, 230, 255)], 2.5, 3, 14, 1, 0.25)
         if self.jumpball == 0:
             apanhado = pw.passo_powerups(self.pw, (p1, p2), XMIN, XMAX, GROUND - BODY_H - HEAD_R + 10)
             if apanhado:
@@ -1943,7 +1966,7 @@ def draw_powerups(low, fn, m, tick):
             gelo = pygame.Surface((I(HEAD_R * 2) + 6, I(HEAD_R * 2 + BODY_H) + 6), pygame.SRCALPHA)
             gelo.fill((150, 220, 255, 110))
             low.blit(gelo, (I(pl.x - HEAD_R) - 3, I(pl.y - HEAD_R) - 3))
-        icones = [k for k in pl.efeitos]
+        icones = [k for k in pl.efeitos if k in pw.TIPOS]          # (atordoado/queimado não têm barra)
         for n, k in enumerate(icones):                          # efeitos ativos por baixo do retrato
             cor = pw.TIPOS[k][2]
             bx = (LW // 2 - 76 - 20 * n) if pl.slot == 0 else (LW // 2 + 58 + 20 * n)
@@ -1952,6 +1975,87 @@ def draw_powerups(low, fn, m, tick):
             pygame.draw.rect(low, cor, (bx + 1, 23, max(1, int(16 * frac)), 2))
     if m.aviso_t > 0:
         ptext(low, fn["mid"], m.aviso, LW // 2, 49, (255, 240, 150))
+
+
+def draw_clima_fundo(low, m, tick):
+    """Desenha o clima no chão (por trás dos jogadores): poças, neve acumulada, fumo e fogo, aviso do relâmpago."""
+    c, gl = m.clima, I(GROUND)
+    for p in c["pocas"]:                                        # poças de água
+        if p["larg"] > 4:
+            w = max(2, I(p["larg"]))
+            pygame.draw.ellipse(low, (40, 80, 160), (I(p["x"]) - w // 2 - 1, gl - 3, w + 2, 7))
+            pygame.draw.ellipse(low, (80, 140, 225), (I(p["x"]) - w // 2, gl - 2, w, 5))
+            pygame.draw.line(low, (190, 225, 255), (I(p["x"]) - w // 4, gl - 1), (I(p["x"]) + w // 6, gl - 1))
+            if (tick + int(p["x"])) % 20 < 3:                       # pingos a cair na poça
+                low.set_at((I(p["x"]) + (tick * 7) % max(1, w) - w // 2, gl - 3), (220, 240, 255))
+    if c["neve_chao"] > 0.05:                                   # neve acumulada no relvado
+        neve = pygame.Surface((LW, 4), pygame.SRCALPHA)
+        neve.fill((245, 250, 255, int(230 * c["neve_chao"])))
+        low.blit(neve, (0, gl - 1))
+    for f in c["fogos"]:
+        fx = I(f["x"])
+        meia = I(cl.FOGO_LARG) // 2
+        if f["aviso"] > 0:                                      # fumo: vai pegar fogo aqui
+            for i in range(5):
+                sobe = (tick + i * 11) % 30
+                pygame.draw.circle(low, (110, 110, 110), (fx - meia + 3 + i * (meia * 2 - 6) // 4, gl - 2 - sobe // 3), 1 + sobe // 12)
+        else:                                                   # fogo
+            pygame.draw.rect(low, (60, 30, 20), (fx - meia, gl - 1, meia * 2, 2))
+            for i in range(meia * 2):
+                h = 6 + (i * 7 + tick // 3 * 13) % 9
+                x = fx - meia + i
+                pygame.draw.line(low, (220, 50, 20), (x, gl), (x, gl - h))
+                pygame.draw.line(low, (255, 140, 30), (x, gl), (x, gl - h * 2 // 3))
+                pygame.draw.line(low, (255, 230, 90), (x, gl), (x, gl - h // 3))
+    if c["raio"] is not None and (tick // 5) % 2:               # aviso do relâmpago: alvo a piscar
+        x, alc = I(c["raio"]["x"]), I(cl.RAIO_ALCANCE)
+        zona = pygame.Surface((alc * 2, gl), pygame.SRCALPHA)           # coluna onde vai cair o raio
+        zona.fill((255, 230, 60, 45))
+        low.blit(zona, (x - alc, 0))
+        pygame.draw.ellipse(low, (255, 230, 60), (x - alc, gl - 3, alc * 2, 7), 2)
+        for y in range(0, gl - 4, 8):
+            pygame.draw.line(low, (255, 230, 60), (x, y), (x, y + 3))
+
+
+def draw_clima_frente(low, m, tick):
+    """Desenha o clima por cima de tudo: chuva, neve, calor, relâmpago e jogadores atordoados."""
+    c, atual = m.clima, m.clima["atual"]
+    tons = {"chuva": (20, 30, 60, 50), "trovoada": (10, 15, 40, 90), "neve": (200, 220, 255, 35), "calor": (255, 140, 40, 35)}
+    if atual in tons:
+        veu = pygame.Surface((LW, LH), pygame.SRCALPHA)
+        veu.fill(tons[atual])
+        low.blit(veu, (0, 0))
+    if atual in ("chuva", "trovoada"):
+        n = 90 if atual == "chuva" else 140
+        for i in range(n):
+            x = (i * 53 + tick * 2) % (LW + 30) - 15
+            y = (i * 97 + tick * 7) % (LH + 10) - 5
+            pygame.draw.line(low, (170, 195, 240), (x, y), (x - 2, y + 5))
+    elif atual == "neve":
+        for i in range(80):
+            x = int((i * 43 + math.sin(tick * 0.03 + i) * 6) % LW)
+            y = int((i * 61 + tick * 0.7) % LH)
+            low.fill((250, 250, 255), (x, y, 1 + (i % 3 == 0), 1 + (i % 3 == 0)))
+    elif atual == "calor":
+        for i in range(12):                                     # faúlhas a subir
+            x = (i * 71 + tick // 2) % LW
+            y = LH - 20 - (i * 29 + tick) % 90
+            low.set_at((x, y), (255, 170, 60))
+    for pl in (m.p1, m.p2):                                     # estrelas à volta de quem levou com um raio
+        if "atordoado" in pl.efeitos:
+            for k in range(3):
+                a = tick * 0.2 + k * 2.1
+                low.fill((255, 240, 80), (I(pl.x) + int(math.cos(a) * 10), I(pl.y - HEAD_R) - 3 + int(math.sin(a) * 2), 2, 2))
+    if c["flash"] > 0:                                          # relâmpago
+        x = I(c["ultimo_raio"] or W / 2)
+        pts, y = [(x, 0)], 0
+        while y < I(GROUND):
+            y += 12
+            pts.append((x + random.randint(-6, 6), min(y, I(GROUND))))
+        pygame.draw.lines(low, (255, 255, 200), False, pts, 2)
+        luz = pygame.Surface((LW, LH), pygame.SRCALPHA)
+        luz.fill((255, 255, 255, 25 * c["flash"]))
+        low.blit(luz, (0, 0))
 
 
 def draw_nome(low, fn, texto, erro, tick):
@@ -2028,7 +2132,7 @@ def main():
     tamanhos = {"big": 34, "score": 26, "mid": 20, "sm": 15, "menu": 17}
     fn = {k: pygame.font.Font(None, t) for k, t in tamanhos.items()}
     TEXTO_HD["low"] = low                                       # texto nítido: a mesma letra, PX vezes maior
-    TEXTO_HD["fontes"] = {id(fn[k]): pygame.font.Font(None, t * PX) for k, t in tamanhos.items()}
+    TEXTO_HD["fontes"] = {id(fn[k]): pygame.font.Font(None, round(t * PX / TEXTO_PIXEL)) for k, t in tamanhos.items()}
     heads, ports = load_heads()
 
     try:                                                        # base de dados das contas
@@ -2043,14 +2147,15 @@ def main():
     hist, est, top = [], None, []
     resumo, nivel = None, 1                                     # resultado da última partida e nível competitivo
     pts = None                                                  # pontos do jogador (lidos da base de dados quando mudam)
+    clima_modo = "aleatorio"                                    # clima das partidas (tecla T no menu)
     m = None
     tick = 0
     teclas_menu = {pygame.K_ESCAPE, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_TAB, pygame.K_x, pygame.K_F11,
-                   pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_h, pygame.K_e, pygame.K_n}
+                   pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_h, pygame.K_e, pygame.K_n, pygame.K_t}
 
     def nova_partida(modo, n=1):
         nome = conta[1] if conta else "Jogador 1"
-        return Match(modo, heads, n, (nome, "Jogador 2"))
+        return Match(modo, heads, n, (nome, "Jogador 2"), clima_modo)
 
     while True:
         pads.update(tick)
@@ -2099,6 +2204,8 @@ def main():
                     save_stadium_index(bg_i)
                 if key == pygame.K_TAB:
                     state = "controls"
+                if key == pygame.K_t:                                   # trocar o clima
+                    clima_modo = cl.MODOS[(cl.MODOS.index(clima_modo) + 1) % len(cl.MODOS)]
                 if key == pygame.K_x:
                     for pth in HEAD_PATHS:
                         if os.path.exists(pth):
@@ -2168,7 +2275,8 @@ def main():
                 ptext(low, fn["sm"], f"Jogador: {conta[1]}   ·   {pts} pontos", LW // 2, 35, (150, 230, 160))
             else:
                 ptext(low, fn["sm"], "cabeças da webcam", LW // 2, 35, (160, 200, 255))
-            items = ["1  vs Bot        2  2 jogadores", "3  Competitivo contra bots",
+            nome_clima = "Aleatório" if clima_modo == "aleatorio" else cl.NOMES[clima_modo]
+            items = ["1  vs Bot        2  2 jogadores", f"3  Competitivo     T  clima: {nome_clima}",
                      "H  histórico     E  estatísticas", f"N  mudar jogador   B  {backgrounds[bg_i][0]}",
                      "C / V  fotos     X  apagar fotos", "TAB controlos  F11 ecrã inteiro  ESC sair"]
             for i, t in enumerate(items):
@@ -2196,11 +2304,14 @@ def main():
             draw_controls(low, fn, pads)
 
         elif state in ("game", "over"):
+            draw_clima_fundo(low, m, tick)
             draw_powerups(low, fn, m, tick)
             draw_player(low, m.p1)
             draw_player(low, m.p2)
             draw_ball(low, m.ball)
             update_draw_particles(low, m.parts)
+            draw_clima_frente(low, m, tick)
+            ptext(low, fn["sm"], "Clima: " + cl.NOMES[m.clima["atual"]], 6, 32, (200, 220, 255), align="left")
             heads_draw += [(pl.head, pl.x, pl.y, pl.facing == -1) for pl in (m.p1, m.p2)]
 
             cx = LW // 2
