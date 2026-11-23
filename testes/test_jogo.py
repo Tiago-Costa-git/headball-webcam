@@ -10,13 +10,20 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import base_dados as bd
+import clima as cl
 import powerups as pw
 
 
 class JogadorFalso:
-    """Só o que os power-ups precisam de um jogador."""
+    """Só o que os power-ups e o clima precisam de um jogador."""
     def __init__(self, x, y):
         self.x, self.y, self.efeitos = x, y, {}
+        self.vy, self.on_ground = 0.0, True
+
+
+class BolaFalsa:
+    def __init__(self, x, y):
+        self.x, self.y, self.vx, self.vy = x, y, 0.0, 0.0
 
 
 class TestNomes(unittest.TestCase):
@@ -100,6 +107,38 @@ class TestNiveis(unittest.TestCase):
         self.assertEqual(velocidades, sorted(velocidades))      # nunca fica mais fácil
         self.assertLessEqual(max(velocidades), 7.5)             # mas tem um limite
         self.assertEqual(hb.nivel_bot(2)["velocidade"], 4.4)    # nível 2 = bot normal do modo 1
+
+
+class TestClima(unittest.TestCase):
+    def test_8_chuva_faz_pocas_e_neve_escorrega(self):
+        rnd = random.Random(4)
+        est = cl.novo_estado("chuva", 100, 1000, rnd)
+        j, bola = JogadorFalso(-999, 400), BolaFalsa(-999, 0)
+        for _ in range(800):
+            cl.passo_clima(est, (j, j), bola, 500, rnd)
+        x = est["pocas"][0]["x"]
+        self.assertTrue(cl.em_poca(est, x))                     # com chuva as poças crescem
+        j.x = x
+        self.assertLess(cl.velocidade(est, j), cl.params(est)["vel"])   # e quem lá está anda mais devagar
+        neve = cl.novo_estado("neve", 100, 1000, rnd)
+        self.assertLess(cl.params(neve)["inercia"], 1)           # neve: chão escorregadio
+        self.assertGreater(cl.params(neve)["atrito"], cl.params(est)["atrito"])  # e a bola desliza mais
+
+    def test_9_raio_e_fogo(self):
+        rnd = random.Random(5)
+        est = cl.novo_estado("trovoada", 100, 1000, rnd)
+        j, longe, bola = JogadorFalso(500, 400), JogadorFalso(950, 400), BolaFalsa(-999, 0)
+        est["raio"] = {"x": 510, "t": 1}                        # um raio prestes a cair ao lado do jogador
+        eventos = cl.passo_clima(est, (j, longe), bola, 500, rnd)
+        self.assertIn(("raio", 510), eventos)
+        self.assertIn("atordoado", j.efeitos)                   # quem estava perto fica atordoado
+        self.assertNotIn("atordoado", longe.efeitos)            # quem estava longe não
+        calor = cl.novo_estado("calor", 100, 1000, rnd)
+        calor["fogos"].append({"x": 300, "aviso": 0, "vida": 100})
+        q = JogadorFalso(300, 400)
+        cl.passo_clima(calor, (q, longe), bola, 500, rnd)
+        self.assertLess(q.vy, 0)                                # pisou o fogo: salta
+        self.assertIn("queimado", q.efeitos)
 
 
 if __name__ == "__main__":
