@@ -1,0 +1,17 @@
+# Fotos dos jogadores, estádio e câmara escolhidos (dados pessoais e locais: nunca publicar)
+heads/
+# Base de dados das contas e ficheiro de resultados (ficam só no computador de cada um)
+dados/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
