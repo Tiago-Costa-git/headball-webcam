@@ -1,6 +1,6 @@
 # Mapa de funções · Head Ball Webcam
 
-Ficheiros: `headball_webcam.py`, `base_dados.py`, `powerups.py`, `testes/test_jogo.py` · 150 funções e métodos (incluindo as funções internas, definidas dentro de outras) · Sprint 1, FP 2026/27
+Ficheiros: `headball_webcam.py`, `base_dados.py`, `clima.py`, `powerups.py`, `testes/test_jogo.py` · 165 funções e métodos (incluindo as funções internas, definidas dentro de outras) · Sprint 1, FP 2026/27
 
 Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não recebe nada ou não devolve nada.
 
@@ -32,7 +32,7 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `Ball.__init__(self)` | — | — | Cria a bola e põe-na na posição inicial. |
 | `Ball.reset(self)` | — | None | Põe a bola no centro, no ar, com um pequeno empurrão aleatório para um dos lados. |
 | `Ball.forces(self)` | — | None | Aplica a gravidade, faz a bola rodar e limita a velocidade máxima a 24. |
-| `Ball.move(self, f)` | f: fração do frame (0 a 1) | None | Move a bola e trata os ressaltos no chão (perde 28%), no teto, nas paredes e nas barras das balizas. |
+| `Ball.move(self, f)` | f: fração do frame (0 a 1) | None | Move a bola e trata os ressaltos no chão (o ressalto e o atrito dependem do clima), no teto, nas paredes e nas barras. |
 | `Ball.update(self)` | — | None | Faz um passo completo da bola (forces + move). |
 | `Ball.clamp(self)` | — | None | Garante que a bola nunca sai dos limites do campo. |
 | `Ball.collide_rect(self, rect, side)` | rect: retângulo; side: lado do campo (−1, 0, 1) | None | Faz a bola ressaltar num retângulo (barra da baliza) e, se ficar parada em cima, empurra-a para o campo. |
@@ -51,7 +51,7 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `Player.leg_circles(self)` | — | lista de (chave, centro, raio) | Devolve os círculos de colisão ao longo das duas pernas. |
 | `Player.track(self)` | — | None | Guarda a velocidade de cada parte da perna para que um remate com a perna em movimento seja mais forte. |
 | `Player.update_legs(self, ax)` | ax: aceleração horizontal | None | Escolhe a pose das pernas (parado, a andar, no ar ou a rematar) e anima-as. |
-| `Player.update(self, left, right, jump, kick, speed, face)` | 4 botões (bool), velocidade, lado forçado (opcional) | None | Aplica os comandos e os power-ups (gelo, velocidade, salto): move, salta, remata, aplica a gravidade e atualiza as pernas. |
+| `Player.update(self, left, right, jump, kick, speed, face)` | 4 botões (bool), velocidade, lado forçado (opcional) | None | Aplica os comandos, os power-ups e o clima (gelo, raio, neve escorregadia): move, salta, remata, aplica a gravidade e atualiza as pernas. |
 | `Player.clamp_x(self)` | — | None | Mantém o jogador dentro dos limites horizontais do campo. |
 | `Player.colliders(self)` | — | lista de formas de colisão | Devolve as formas sólidas do jogador (cabeça, tronco, pernas e botas), iguais ao que está desenhado. |
 | `Player.on_impact(self, key, ball, cvel)` | parte do corpo, bola, velocidade da parte | None | Se a perna que remata bate na bola durante o remate, chuta e levanta a bola (mais forte com o super chuto). |
@@ -65,9 +65,9 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `bot_controls(bot, ball, chuto, salto)` | bot, bola, probabilidade de chutar e de saltar | (esquerda, direita, saltar, chutar) | Decide os comandos do bot: posiciona-se atrás da bola, salta e remata com uma probabilidade que depende do nível. |
 | `read_inputs(keys, pad_states, mode)` | teclas premidas, estados dos comandos, modo (1 ou 2) | (comandos J1, comandos J2) | Junta teclado e comandos e decide que comando controla cada jogador. |
 | `read_inputs.merge(a, b) (interna)` | dois tuplos de 4 bool | tuplo de 4 bool | Combina dois conjuntos de botões (basta um estar premido). |
-| `Match.__init__(self, mode, heads, nivel, nomes)` | mode: 1 = vs bot, 2 = 2 jogadores, 3 = competitivo; sprites; nível; nomes | — | Cria uma partida: jogadores, bola, resultado [0, 0], bot do nível, tempo (60 s, ou 45 s no competitivo) e power-ups. |
+| `Match.__init__(self, mode, heads, nivel, nomes, clima)` | mode: 1 = vs bot, 2 = 2 jogadores, 3 = competitivo; sprites; nível; nomes; clima | — | Cria uma partida: jogadores, bola, resultado [0, 0], bot do nível, tempo (60 s, ou 45 s no competitivo), power-ups e clima. |
 | `Match.goal(self, scorer)` | scorer: 0 ou 1 | None | Soma o golo, mostra a faixa com o nome de quem marcou, faz tremer o ecrã e lança confettis. |
-| `Match.step(self, in1, in2)` | comandos do J1 e do J2 | None | Avança um frame: tempo, jogadores, bot, power-ups, bola, golos, "bola ao ar" e fim da partida. |
+| `Match.step(self, in1, in2)` | comandos do J1 e do J2 | None | Avança um frame: tempo, clima, jogadores, bot, power-ups, bola, golos, "bola ao ar" e fim da partida. |
 
 ## Comandos (PS5, PS4, Xbox…): classe Pads · `headball_webcam.py`
 
@@ -152,7 +152,10 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
-| `ptext(surf, font, msg, x, y, color, align, shadow)` | ecrã, letra, texto, posição, cor, alinhamento, sombra | None | Escreve texto alinhado, com sombra. |
+| `ptext(surf, font, msg, x, y, color, align, shadow)` | ecrã, letra, texto, posição, cor, alinhamento, sombra | None | Escreve texto alinhado, com sombra; no ecrã principal guarda-o para ser desenhado nítido à resolução real. |
+| `desenhar_textos(screen, ox, oy)` | janela, deslocamento do tremor do ecrã | None | Desenha na janela todo o texto guardado neste frame, com letras pixelizadas mas legíveis, e esvazia a lista. |
+| `desenhar_textos.render(msg, color) (interna)` | texto, cor | Surface | Desenha o texto sem suavização e amplia-o TEXTO_PIXEL vezes, para ficar pixelizado. |
+| `alternar_ecra_inteiro()` | — | mensagem (str) | Liga ou desliga o ecrã inteiro (F11) e diz se não for suportado. |
 | `draw_head(screen, sprite, cx, cy, flip)` | ecrã, sprite, centro, virar | None | Desenha a cabeça do jogador com contorno, virada para o lado certo. |
 | `draw_leg(low, p, leg, team)` | ecrã, jogador, perna, cores da equipa | None | Desenha a perna (coxa, meia e bota). |
 | `draw_arm(low, p, leg, team)` | ecrã, jogador, perna, cores da equipa | None | Desenha o braço, que balança ao contrário da perna. |
@@ -160,13 +163,15 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `draw_ball(low, b)` | ecrã, bola | None | Desenha a bola a rodar e a sua sombra. |
 | `spawn(parts, x, y, n, colors, spread, up, life, size, grav)` | lista de partículas, posição, quantidade, cores, … | None | Acrescenta partículas (confettis, relva, faíscas) à lista. |
 | `update_draw_particles(low, parts)` | ecrã, lista de partículas | None | Move, desenha e apaga as partículas que já acabaram. |
-| `draw_controls(low, fn, pads)` | ecrã, letras, comandos | None | Desenha o ecrã de controlos do menu. |
+| `draw_controls(low, fn, pads)` | ecrã, letras, comandos | None | Desenha o ecrã de controlos do menu (teclado, comando e F11). |
 | `draw_controls.block(x, y, title, color, lines, off) (interna)` | posição, título, cor, linhas, espaço | None | Desenha um bloco de controlos (título + tecla → ação). |
 
 ## Ecrãs novos: contas, power-ups, histórico e estatísticas · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
+| `draw_clima_fundo(low, m, tick)` | ecrã, partida, frame | None | Desenha o clima no chão: poças, neve acumulada, fumo e fogo, e o aviso de onde vai cair o raio. |
+| `draw_clima_frente(low, m, tick)` | ecrã, partida, frame | None | Desenha por cima de tudo a chuva, a neve, as faúlhas do calor, o relâmpago e as estrelas de quem foi atingido. |
 | `painel(low, x, y, w, h, alpha)` | ecrã, posição, tamanho, transparência | None | Desenha um retângulo escuro semitransparente por trás do texto. |
 | `draw_powerups(low, fn, m, tick)` | ecrã, letras, partida, frame | None | Desenha os power-ups no campo, o gelo nos jogadores congelados, as barras dos efeitos ativos e o aviso de quem apanhou. |
 | `draw_nome(low, fn, texto, erro, tick)` | ecrã, letras, texto escrito, mensagem de erro, frame | None | Desenha o ecrã onde o jogador escreve o nome da conta. |
@@ -177,7 +182,7 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
-| `main()` | — | None | Abre a janela, liga a base de dados e corre o ciclo do jogo com 7 ecrãs (nome, menu, controlos, jogo, fim, histórico, estatísticas) a 60 frames por segundo. |
+| `main()` | — | None | Abre a janela (redimensionável para ecrã inteiro), liga a base de dados e corre o ciclo do jogo com 7 ecrãs (nome, menu, controlos, jogo, fim, histórico, estatísticas) a 60 frames por segundo. |
 | `main.nova_partida(modo, n) (interna)` | modo (1, 2 ou 3), nível | Match | Cria uma partida com o nome do jogador que está na conta. |
 
 ## Base de dados (contas, histórico, estatísticas) · `base_dados.py`
@@ -209,11 +214,24 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `apanhou(pu, jogador)` | power-up, jogador | bool | Verifica se a cabeça ou o corpo do jogador toca no power-up. |
 | `passo_powerups(estado, jogadores, xmin, xmax, y_chao, rnd)` | estado dos power-ups, jogadores, limites | (jogador, texto) ou None | Avança um frame: faz aparecer, envelhecer e apanhar power-ups. |
 
+## Clima (chuva, trovoada, neve, calor) · `clima.py`
+
+| Função | Recebe | Devolve | O que faz |
+|---|---|---|---|
+| `novo_estado(modo, xmin, xmax, rnd)` | modo (aleatorio, limpo, chuva, trovoada, neve, calor), limites do campo | dicionário | Cria o clima da partida: clima atual, poças, relâmpagos, zonas de fogo e quando muda (no modo aleatório). |
+| `params(estado)` | estado do clima | dicionário | Devolve a física do clima atual: velocidade dos jogadores, inércia, ressalto e atrito da bola. |
+| `em_poca(estado, x)` | estado, posição x | bool | Verifica se essa posição está dentro de uma poça. |
+| `em_fogo(estado, x)` | estado, posição x | bool | Verifica se essa posição está numa zona a arder. |
+| `mudar(estado, rnd)` | estado, gerador aleatório | texto do aviso | Muda para outro clima e apaga o fogo e os relâmpagos pendentes. |
+| `passo_clima(estado, jogadores, bola, y_chao, rnd)` | estado, jogadores, bola, altura do chão | lista de acontecimentos | Avança um frame: muda o clima, faz crescer as poças, lança relâmpagos com aviso, acende o fogo e aplica-os aos jogadores e à bola. |
+| `velocidade(estado, jogador)` | estado, jogador | float | Multiplicador da velocidade do jogador com o clima, mais lento dentro das poças. |
+
 ## Casos de teste (R4) · `testes/test_jogo.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
-| `JogadorFalso.__init__(self, x, y)` | posição | — | Jogador simplificado só para testar os power-ups. |
+| `JogadorFalso.__init__(self, x, y)` | posição | — | Jogador simplificado só para testar os power-ups e o clima. |
+| `BolaFalsa.__init__(self, x, y)` | posição | — | Bola simplificada só para testar o clima. |
 | `TestNomes.test_1_validacao_do_nome(self)` | — | — | Nomes válidos, vazios, compridos, com símbolos e com tentativa de injeção de SQL. |
 | `TestBaseDados.setUp(self)` | — | — | Cria uma base de dados temporária em memória antes de cada teste. |
 | `TestBaseDados.tearDown(self)` | — | — | Fecha a base de dados temporária depois de cada teste. |
@@ -223,3 +241,5 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `TestPowerUps.test_5_efeitos_e_apanhar(self)` | — | — | O gelo vai para o adversário, os efeitos expiram e apanhar um power-up funciona. |
 | `TestPowerUps.test_6_powerup_aparece_e_desaparece(self)` | — | — | Um power-up aparece e desaparece se ninguém o apanhar. |
 | `TestNiveis.test_7_bot_fica_mais_dificil(self)` | — | — | O bot nunca fica mais fácil de nível para nível e tem um limite de velocidade. |
+| `TestClima.test_8_chuva_faz_pocas_e_neve_escorrega(self)` | — | — | Com chuva crescem poças que abrandam os jogadores; a neve torna o chão escorregadio. |
+| `TestClima.test_9_raio_e_fogo(self)` | — | — | O raio atordoa só quem está perto e pisar o fogo faz saltar. |
