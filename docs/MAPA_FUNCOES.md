@@ -1,10 +1,10 @@
 # Mapa de funções · Head Ball Webcam
 
-Ficheiro: `headball_webcam.py` · 114 funções e métodos (incluindo 7 funções internas, definidas dentro de outras) · Sprint 1, FP 2026/27
+Ficheiros: `headball_webcam.py`, `base_dados.py`, `powerups.py`, `testes/test_jogo.py` · 150 funções e métodos (incluindo as funções internas, definidas dentro de outras) · Sprint 1, FP 2026/27
 
 Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não recebe nada ou não devolve nada.
 
-## Utilitários e webcam (fotos dos jogadores)
+## Utilitários e webcam (fotos dos jogadores) · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
@@ -25,7 +25,7 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `load_head(slot, size)` | slot: 0 ou 1; size: lado em píxeis | Surface | Carrega a foto do jogador se existir e for válida; senão usa a cara por defeito. |
 | `load_heads()` | — | (cabeças do jogo, retratos do menu) | Carrega as duas cabeças em dois tamanhos: um para o jogo e outro para o menu. |
 
-## Física: classe Ball (bola)
+## Física: classe Ball (bola) · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
@@ -38,37 +38,38 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `Ball.collide_rect(self, rect, side)` | rect: retângulo; side: lado do campo (−1, 0, 1) | None | Faz a bola ressaltar num retângulo (barra da baliza) e, se ficar parada em cima, empurra-a para o campo. |
 | `Ball.collide_circle(self, cx, cy, r, cvx, cvy, e)` | centro, raio e velocidade do círculo; e: elasticidade | bool | Resolve a colisão com um círculo em movimento; devolve True se houve contacto. |
 
-## Física: classes Leg e Player (jogadores)
+## Física: classes Leg e Player (jogadores) · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
 | `Leg.__init__(self)` | — | — | Cria uma perna com coxa e canela paradas. |
 | `Leg.step(self, a_target, r_target, k, damp)` | ângulos-alvo da coxa e do joelho; k: força da mola; damp: amortecimento | None | Move a coxa como uma mola e a canela com atraso (efeito chicote), com limites no joelho. |
 | `Player.__init__(self, slot, x, facing, head)` | slot, posição x inicial, lado para onde olha, sprite da cabeça | — | Cria o jogador e põe-no na posição inicial. |
-| `Player.reset(self)` | — | None | Repõe posição, velocidade, pernas e remate do jogador (usado depois de cada golo). |
+| `Player.reset(self)` | — | None | Repõe posição, velocidade, pernas, remate e power-ups do jogador (usado depois de cada golo). |
 | `Player.hip (propriedade)` | — | (x, y) | Devolve a posição da anca, de onde saem as pernas. |
 | `Player.leg_points(self, leg)` | leg: perna | (anca, joelho, pé) | Calcula os três pontos da perna a partir dos ângulos. |
 | `Player.leg_circles(self)` | — | lista de (chave, centro, raio) | Devolve os círculos de colisão ao longo das duas pernas. |
 | `Player.track(self)` | — | None | Guarda a velocidade de cada parte da perna para que um remate com a perna em movimento seja mais forte. |
 | `Player.update_legs(self, ax)` | ax: aceleração horizontal | None | Escolhe a pose das pernas (parado, a andar, no ar ou a rematar) e anima-as. |
-| `Player.update(self, left, right, jump, kick, speed, face)` | 4 botões (bool), velocidade, lado forçado (opcional) | None | Aplica os comandos: move, salta, inicia o remate, aplica a gravidade e atualiza as pernas. |
+| `Player.update(self, left, right, jump, kick, speed, face)` | 4 botões (bool), velocidade, lado forçado (opcional) | None | Aplica os comandos e os power-ups (gelo, velocidade, salto): move, salta, remata, aplica a gravidade e atualiza as pernas. |
 | `Player.clamp_x(self)` | — | None | Mantém o jogador dentro dos limites horizontais do campo. |
 | `Player.colliders(self)` | — | lista de formas de colisão | Devolve as formas sólidas do jogador (cabeça, tronco, pernas e botas), iguais ao que está desenhado. |
-| `Player.on_impact(self, key, ball, cvel)` | parte do corpo, bola, velocidade da parte | None | Se a perna que remata bate na bola durante o remate, chuta e levanta a bola. |
+| `Player.on_impact(self, key, ball, cvel)` | parte do corpo, bola, velocidade da parte | None | Se a perna que remata bate na bola durante o remate, chuta e levanta a bola (mais forte com o super chuto). |
 
-## Lógica do jogo
+## Lógica do jogo · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
 | `resolve_ball(ball, players)` | ball: bola; players: os dois jogadores | ({jogador: tocou}, força do impacto) | Resolve as colisões da bola com os jogadores, tratando primeiro o contacto mais fundo. |
-| `bot_controls(bot, ball)` | bot: jogador controlado pelo computador; ball: bola | (esquerda, direita, saltar, chutar) | Decide os comandos do bot: posiciona-se atrás da bola, salta e remata com alguma aleatoriedade. |
+| `nivel_bot(n)` | n: nível do modo competitivo (1, 2, 3…) | dicionário {nome, velocidade, chuto, salto} | Devolve a dificuldade do bot nesse nível; depois do nível 5 o bot continua a ficar mais rápido, até um limite. |
+| `bot_controls(bot, ball, chuto, salto)` | bot, bola, probabilidade de chutar e de saltar | (esquerda, direita, saltar, chutar) | Decide os comandos do bot: posiciona-se atrás da bola, salta e remata com uma probabilidade que depende do nível. |
 | `read_inputs(keys, pad_states, mode)` | teclas premidas, estados dos comandos, modo (1 ou 2) | (comandos J1, comandos J2) | Junta teclado e comandos e decide que comando controla cada jogador. |
 | `read_inputs.merge(a, b) (interna)` | dois tuplos de 4 bool | tuplo de 4 bool | Combina dois conjuntos de botões (basta um estar premido). |
-| `Match.__init__(self, mode, heads)` | mode: 1 ou 2 jogadores; heads: sprites | — | Cria uma partida: jogadores, bola, resultado [0, 0] e tempo de 60 s. |
-| `Match.goal(self, scorer)` | scorer: 0 ou 1 | None | Soma o golo, mostra a faixa "GOLO", faz tremer o ecrã e lança confettis. |
-| `Match.step(self, in1, in2)` | comandos do J1 e do J2 | None | Avança um frame: tempo, jogadores, bot, bola, golos, "bola ao ar" e fim da partida. |
+| `Match.__init__(self, mode, heads, nivel, nomes)` | mode: 1 = vs bot, 2 = 2 jogadores, 3 = competitivo; sprites; nível; nomes | — | Cria uma partida: jogadores, bola, resultado [0, 0], bot do nível, tempo (60 s, ou 45 s no competitivo) e power-ups. |
+| `Match.goal(self, scorer)` | scorer: 0 ou 1 | None | Soma o golo, mostra a faixa com o nome de quem marcou, faz tremer o ecrã e lança confettis. |
+| `Match.step(self, in1, in2)` | comandos do J1 e do J2 | None | Avança um frame: tempo, jogadores, bot, power-ups, bola, golos, "bola ao ar" e fim da partida. |
 
-## Comandos (PS5, PS4, Xbox…): classe Pads
+## Comandos (PS5, PS4, Xbox…): classe Pads · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
@@ -80,9 +81,9 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `Pads.state_ctl(c)` | c: comando GameController | (esq, dir, saltar, chutar) | Lê o analógico e os botões de um comando reconhecido. |
 | `Pads.state_joy(j)` | j: joystick genérico | (esq, dir, saltar, chutar) | Lê eixos, setas e botões de um joystick genérico. |
 | `Pads.states(self)` | — | lista de tuplos de 4 bool | Devolve o estado de todos os comandos; um comando com erro conta como "nada premido". |
-| `Pads.event_key(self, e, state)` | e: evento; state: ecrã atual | tecla do pygame ou None | Traduz um botão do comando na tecla equivalente do menu ou do jogo. |
+| `Pads.event_key(self, e, state)` | e: evento; state: ecrã atual | tecla do pygame ou None | Traduz um botão do comando na tecla equivalente do menu, do jogo, do histórico ou das estatísticas. |
 
-## Estádios e persistência
+## Estádios e persistência · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
@@ -95,7 +96,7 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `draw_pitch(bg)` | bg: fundo | o mesmo fundo | Desenha o relvado, as linhas e as balizas (iguais em todos os estádios). |
 | `run_anim(anim, low, t)` | anim: função de animação; low: ecrã; t: frame | None | Desenha as animações do cenário (navios, metro, gaivotas…) e volta a desenhar o relvado e as balizas por cima delas. |
 
-## Cenários em pixel art: classes Canvas e Pen
+## Cenários em pixel art: classes Canvas e Pen · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
@@ -111,7 +112,7 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `Pen.line(self, x0, y0, x1, y1, c)` | dois pontos e cor | None | Desenha uma linha. |
 | `Pen.release(self)` | — | None | Retira a área de recorte. |
 
-## Cenários: Lisboa, Piaget e Almada
+## Cenários: Lisboa, Piaget e Almada · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
@@ -147,7 +148,7 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `make_piaget_anim()` | — | função anim | Prepara a animação do Piaget (pessoas a andar e gaivotas). |
 | `make_piaget_anim.anim(d, t) (interna)` | superfície, frame | None | Desenha um frame da animação do Piaget. |
 
-## Desenho no ecrã
+## Desenho no ecrã · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
@@ -162,8 +163,63 @@ Coluna *Recebe*: `self` não aparece nos métodos. "—" quer dizer que não rec
 | `draw_controls(low, fn, pads)` | ecrã, letras, comandos | None | Desenha o ecrã de controlos do menu. |
 | `draw_controls.block(x, y, title, color, lines, off) (interna)` | posição, título, cor, linhas, espaço | None | Desenha um bloco de controlos (título + tecla → ação). |
 
-## Programa principal
+## Ecrãs novos: contas, power-ups, histórico e estatísticas · `headball_webcam.py`
 
 | Função | Recebe | Devolve | O que faz |
 |---|---|---|---|
-| `main()` | — | None | Abre a janela e corre o ciclo do jogo com 4 ecrãs (menu, controlos, jogo, fim) a 60 frames por segundo. |
+| `painel(low, x, y, w, h, alpha)` | ecrã, posição, tamanho, transparência | None | Desenha um retângulo escuro semitransparente por trás do texto. |
+| `draw_powerups(low, fn, m, tick)` | ecrã, letras, partida, frame | None | Desenha os power-ups no campo, o gelo nos jogadores congelados, as barras dos efeitos ativos e o aviso de quem apanhou. |
+| `draw_nome(low, fn, texto, erro, tick)` | ecrã, letras, texto escrito, mensagem de erro, frame | None | Desenha o ecrã onde o jogador escreve o nome da conta. |
+| `draw_historico(low, fn, nome, hist)` | ecrã, letras, nome, lista de partidas | None | Desenha as últimas 10 partidas com data, modo, adversário, marcador e GANHOU/EMPATE/PERDEU. |
+| `draw_estatisticas(low, fn, nome, est, top)` | ecrã, letras, nome, estatísticas, top 5 | None | Desenha as estatísticas do jogador e o top 5 de pontos. |
+
+## Programa principal · `headball_webcam.py`
+
+| Função | Recebe | Devolve | O que faz |
+|---|---|---|---|
+| `main()` | — | None | Abre a janela, liga a base de dados e corre o ciclo do jogo com 7 ecrãs (nome, menu, controlos, jogo, fim, histórico, estatísticas) a 60 frames por segundo. |
+| `main.nova_partida(modo, n) (interna)` | modo (1, 2 ou 3), nível | Match | Cria uma partida com o nome do jogador que está na conta. |
+
+## Base de dados (contas, histórico, estatísticas) · `base_dados.py`
+
+| Função | Recebe | Devolve | O que faz |
+|---|---|---|---|
+| `ligar(caminho)` | caminho do ficheiro (por defeito dados/headball.db) | ligação SQLite | Abre ou cria a base de dados e garante que as tabelas existem. |
+| `criar_tabelas(conn)` | ligação | None | Cria as tabelas jogadores e partidas, com regras que impedem valores inválidos. |
+| `validar_nome(nome)` | nome escrito pelo jogador | (True, nome limpo) ou (False, mensagem) | Valida o nome: não vazio, máximo 12 caracteres, só letras, números, espaço, - e _. |
+| `_agora()` | — | str | Devolve a data e hora atuais no formato AAAA-MM-DD HH:MM. |
+| `entrar(conn, nome)` | ligação, nome | (id, nome) | Entra na conta com esse nome, criando-a se ainda não existir (maiúsculas não contam). |
+| `ultimo_jogador(conn)` | ligação | (id, nome) ou None | Devolve o último jogador que entrou, para o jogo abrir já com essa conta. |
+| `calcular_resultado(golos_marcados, golos_sofridos)` | dois inteiros | "V", "E" ou "D" | Decide se foi vitória, empate ou derrota. |
+| `guardar_partida(conn, jogador_id, modo, adversario, golos_marcados, golos_sofridos, nivel)` | ligação, conta, dados da partida | {resultado, texto, pontos} | Guarda a partida e calcula os pontos (3/1/0, mais o nível no competitivo). |
+| `ler_historico(conn, jogador_id, limite)` | ligação, conta, nº de partidas | lista de dicionários | Devolve as últimas partidas do jogador, a mais recente primeiro. |
+| `melhor_sequencia(resultados)` | lista de "V"/"E"/"D" | int | Conta o maior número de vitórias seguidas. |
+| `ler_estatisticas(conn, jogador_id)` | ligação, conta | dicionário | Calcula partidas, vitórias, empates, derrotas, golos, pontos, % de vitórias, média de golos, melhor sequência e melhor nível. |
+| `ranking(conn, limite)` | ligação, nº de jogadores | lista de (nome, pontos, vitórias) | Devolve o top de jogadores por pontos. |
+| `exportar_txt(conn, caminho)` | ligação, caminho (por defeito dados/resultados.txt) | bool | Escreve todas as partidas num ficheiro de texto, uma por linha; devolve False se não conseguir escrever. |
+
+## Power-ups · `powerups.py`
+
+| Função | Recebe | Devolve | O que faz |
+|---|---|---|---|
+| `PowerUp.__init__(self, tipo, x, y)` | tipo, posição | — | Cria um power-up no campo com 8 segundos de vida. |
+| `novo_powerup(xmin, xmax, y_chao, rnd)` | limites do campo, altura, gerador aleatório | PowerUp | Cria um power-up aleatório num sítio que se apanha a andar ou a saltar. |
+| `atualizar_efeitos(efeitos)` | dicionário {efeito: frames} | dicionário | Desconta um frame a cada efeito e tira os que acabaram. |
+| `aplicar(tipo, jogador, adversario)` | tipo, quem apanhou, adversário | texto (str) | Dá o efeito a quem apanhou (ou ao adversário, no caso do gelo). |
+| `apanhou(pu, jogador)` | power-up, jogador | bool | Verifica se a cabeça ou o corpo do jogador toca no power-up. |
+| `passo_powerups(estado, jogadores, xmin, xmax, y_chao, rnd)` | estado dos power-ups, jogadores, limites | (jogador, texto) ou None | Avança um frame: faz aparecer, envelhecer e apanhar power-ups. |
+
+## Casos de teste (R4) · `testes/test_jogo.py`
+
+| Função | Recebe | Devolve | O que faz |
+|---|---|---|---|
+| `JogadorFalso.__init__(self, x, y)` | posição | — | Jogador simplificado só para testar os power-ups. |
+| `TestNomes.test_1_validacao_do_nome(self)` | — | — | Nomes válidos, vazios, compridos, com símbolos e com tentativa de injeção de SQL. |
+| `TestBaseDados.setUp(self)` | — | — | Cria uma base de dados temporária em memória antes de cada teste. |
+| `TestBaseDados.tearDown(self)` | — | — | Fecha a base de dados temporária depois de cada teste. |
+| `TestBaseDados.test_2_conta_criada_e_reutilizada(self)` | — | — | O mesmo nome (com outras maiúsculas) entra na mesma conta. |
+| `TestBaseDados.test_3_resultado_e_pontos(self)` | — | — | Vitória, empate, derrota e bónus do nível competitivo dão os pontos certos. |
+| `TestBaseDados.test_4_historico_e_estatisticas(self)` | — | — | Estatísticas, melhor sequência, ordem do histórico e ranking estão certos. |
+| `TestPowerUps.test_5_efeitos_e_apanhar(self)` | — | — | O gelo vai para o adversário, os efeitos expiram e apanhar um power-up funciona. |
+| `TestPowerUps.test_6_powerup_aparece_e_desaparece(self)` | — | — | Um power-up aparece e desaparece se ninguém o apanhar. |
+| `TestNiveis.test_7_bot_fica_mais_dificil(self)` | — | — | O bot nunca fica mais fácil de nível para nível e tem um limite de velocidade. |

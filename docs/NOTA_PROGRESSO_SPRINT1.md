@@ -4,104 +4,115 @@
 
 **Equipa:** Tiago Costa, André Filipe, Guilherme Lopes · **Entrega:** 24/11/2026
 
-**Código entregue:** `headball_webcam.py` (1991 linhas, Python 3 + pygame-ce, numpy, opencv-python) · **Repositório:** [link do GitHub a preencher]
+**Código entregue:** https://github.com/Tiago-Costa-git/headball-webcam · 4 ficheiros Python (`headball_webcam.py`, `base_dados.py`, `powerups.py`, `testes/test_jogo.py`), 150 funções e métodos · Python 3 + pygame-ce, numpy, opencv-python, sqlite3
 
 ## 1. Resumo
 
-O jogo já é jogável do princípio ao fim: menu, partida de 60 segundos contra o computador ou entre dois jogadores, golos, fim de jogo e regresso ao menu. As cabeças dos jogadores podem ser fotografadas com a webcam ou importadas de um ficheiro, há 5 estádios à escolha e o jogo funciona com teclado ou com comandos (PS5, PS4, Xbox). O professor aceitou que o jogo seja gráfico (pygame) em vez de modo de texto.
+O jogo é jogável do princípio ao fim e já vai além do protótipo mínimo:
 
-Os requisitos R1 (menu com validação) e R2 (funções) estão cumpridos em grande parte, mas não totalmente: o menu ignora as teclas inválidas sem mostrar nenhuma mensagem, e o código ainda está todo num único ficheiro. O R3 (lista de resultados guardada num ficheiro) ainda não foi começado e é o objetivo do Sprint 2.
+- **Contas:** cada jogador entra com o seu nome. As partidas, os pontos e as estatísticas ficam guardados numa base de dados SQLite.
+- **Três modos:** contra o bot, 2 jogadores e **competitivo**, contra bots cada vez mais difíceis até perder.
+- **Durante a partida:** aparecem **power-ups**.
+- **Ecrãs de consulta:** histórico das últimas partidas e estatísticas com o top 5.
+- **Já existia:** cabeças pela webcam, 5 estádios e comandos PS5, PS4 e Xbox.
+
+Os requisitos R1 (menu com validação) e R2 (funções e módulos) estão cumpridos. O R3 (lista de dados + ficheiro), que era o objetivo do Sprint 2, ficou adiantado: os dados vão para a base de dados e também para um ficheiro de texto. Para o R4 já existem 7 casos de teste automáticos.
 
 ## 2. R1: menu com validação de entrada
 
-**Onde está:** na função `main()`, no bloco `if state == "menu":` (linhas 1874 a 1897). O jogo tem 4 estados (`menu`, `controls`, `game`, `over`) e cada um só aceita as teclas que lhe pertencem.
+**Onde está:** na função `main()` de `headball_webcam.py`, no bloco `if state == "menu":` (a partir da linha 2051), e no ecrã do nome (linha 2027), que usa `validar_nome()` de `base_dados.py`.
 
-| Tecla no menu | Comando | O que faz |
-|---|---|---|
-| 1 | CRUZ | Começa um jogo de 1 jogador contra o bot |
-| 2 | TRIÂNGULO | Começa um jogo de 2 jogadores |
-| B | QUADRADO | Troca de estádio e guarda a escolha |
-| C / V | — | Tira a foto do Jogador 1 / Jogador 2 com a webcam |
-| X | — | Apaga as fotos guardadas |
-| TAB | OPTIONS | Abre o ecrã de controlos |
-| ESC | — | Sai do jogo |
+| Tecla no menu | O que faz |
+|---|---|
+| 1 / 2 / 3 | Contra o bot / 2 jogadores / competitivo |
+| H / E | Histórico / estatísticas |
+| N | Mudar de jogador (outra conta) |
+| B | Trocar de estádio (a escolha fica guardada) |
+| C / V / X | Foto do J1 / foto do J2 / apagar as fotos |
+| TAB / ESC | Controlos / sair |
 
-**Entradas inválidas que o jogo já trata (testadas):**
+**Entradas inválidas que o jogo trata:**
 
-- **Tecla sem função no menu** (por exemplo Q, 9 ou P): é ignorada e o menu continua ativo. O jogo não fecha nem muda de estado.
-- **Ficheiro `heads/estadio.txt` com texto em vez de número** (por exemplo `abc`): `load_stadium_index()` apanha o erro com `try/except` e usa o estádio 0 (Clássico).
-- **Número de estádio fora do intervalo** (por exemplo `99`): em `main()` o valor passa por `% len(backgrounds)` (linha 1853), por isso fica sempre entre 0 e 4.
-- **Ficheiro em falta:** o estádio fica o 0 e a câmara fica a 0.
-- **OpenCV não instalado:** `capture_head()` devolve a mensagem "Falta instalar: pip install opencv-python numpy" em vez de fechar o jogo.
-- **Erro da webcam** (câmara ocupada ou desligada): `capture_head()` apanha qualquer exceção e mostra a mensagem de erro no menu.
-- **Foto inválida ao importar** (ficheiro que não é imagem): aparece "Não consegui ler essa imagem." e o jogo continua.
-- **Comando com erro ou desligado a meio:** `Pads.states()` trata-o como "nada premido" e o jogo procura comandos novos a cada segundo.
+- **Tecla sem função no menu** (por exemplo Q): aparece "Tecla inválida! Usa as teclas do menu." e o jogo continua.
+- **Nome vazio ou só com espaços:** aparece "Escreve um nome."
+- **Nome com mais de 12 caracteres:** o jogo não deixa escrever mais e mostra "Máximo 12 caracteres."
+- **Nome com símbolos** (por exemplo `Tiago!` ou `x'; DROP TABLE--`): aparece "Só letras, números, espaço, - e _."
+  - As consultas à base de dados usam parâmetros (`?`), por isso mesmo um nome malicioso nunca seria executado como SQL.
+  - Esta proteção está testada no teste 1.
+- **Ficheiro `heads/estadio.txt` estragado** (por exemplo `abc`): o jogo usa o estádio 0.
+- **Número de estádio fora do intervalo** (`99`): o valor passa por `% len(backgrounds)`.
+- **Base de dados indisponível** (pasta sem permissão, ficheiro corrompido): o jogo abre na mesma e diz "Base de dados indisponível" quando se tenta abrir o histórico.
+- **OpenCV em falta ou webcam com erro:** aparece uma mensagem em vez de o jogo fechar.
 
-**O que falta no R1 (honestamente):** quando se carrega numa tecla inválida no menu não aparece nenhuma mensagem. Se o professor exigir feedback visível, basta acrescentar no fim do bloco do menu um `else` que mostra "Tecla inválida: usa 1, 2, B, C, V, X, TAB ou ESC" (a variável `msg` já existe e já é mostrada no menu). Está planeado para o início do Sprint 2.
+## 3. R2: funções e módulos
 
-## 3. R2: funções e organização do código
+O código está dividido em **4 ficheiros**, com **150 funções e métodos**, todos descritos no **mapa de funções**:
 
-O código tem **114 funções e métodos**, organizados em 7 classes (`Ball`, `Leg`, `Player`, `Canvas`, `Pen`, `Pads`, `Match`) e funções soltas por tema: webcam, física, lógica do jogo, estádios, cenários, desenho e programa principal. Todas estão descritas no **Mapa de funções** entregue em conjunto.
+| Ficheiro | O que tem |
+|---|---|
+| `headball_webcam.py` | Jogo: física, jogadores, bot, partida, estádios, desenho, ecrãs e ciclo principal |
+| `base_dados.py` | Contas, histórico, estatísticas, ranking e exportação para texto. Não usa pygame |
+| `powerups.py` | Lógica dos power-ups. Não usa pygame |
+| `testes/test_jogo.py` | 7 casos de teste automáticos |
 
-As funções mais importantes para o funcionamento do jogo são:
+Separámos a base de dados e os power-ups do pygame. Assim conseguimos testá-los sem abrir a janela, e a classe `Match` continua a ter só lógica.
 
-- `Match.step(in1, in2)`: avança a partida um frame (tempo, jogadores, bola, golos e fim).
-- `resolve_ball(ball, players)`: colisões entre a bola e os jogadores.
-- `bot_controls(bot, ball)`: inteligência do computador no modo 1 jogador.
-- `read_inputs(keys, pad_states, mode)`: junta teclado e comandos.
-- `capture_head(...)` e `import_head_from_file(...)`: fotos dos jogadores.
-- `load_stadium_index()` e `save_stadium_index(i)`: guardar e ler o estádio escolhido.
-
-A classe `Match` não desenha nada, só tem a lógica. Isso permitiu testar partidas completas sem janela (modo *headless*): uma partida de 1 jogador e outra de 2 jogadores chegaram ao fim sem erros.
-
-**O que falta no R2:** o código ainda está todo num único ficheiro de 1991 linhas. A história 3 do backlog (separar em módulos, por exemplo `fisica.py`, `cenarios.py`, `webcam.py`, `comandos.py` e `main.py`) passou para o Sprint 2.
+**O que falta no R2:** o `headball_webcam.py` ainda tem cerca de 2200 linhas. Separar também a física, os cenários e a webcam em módulos próprios fica para o Sprint 2.
 
 ## 4. O que funciona e o que falta
 
 **Funciona:**
 
-- Partida completa de 60 s: 1 jogador contra o bot ou 2 jogadores no mesmo teclado.
-- Física com pernas articuladas (coxa e canela), remate, salto e colisões que não deixam a bola atravessar os jogadores.
-- Regra "bola ao ar": se a bola ficar presa entre os dois jogadores durante 3 s, há uma contagem 3-2-1 e a bola é lançada ao ar.
-- Fotos das cabeças pela webcam (com deteção de cara e troca de câmara) ou a partir de um ficheiro.
-- 5 estádios (Clássico, Lisboa, Piaget, Almada, Noite), três deles com animações (navios, metro de superfície, gaivotas). O estádio escolhido fica guardado.
-- Suporte para comandos PS5, PS4 e Xbox, por cabo ou Bluetooth, com deteção automática.
-- Ecrã de controlos e ecrã de fim de jogo.
+- **Contas:** ao abrir pela primeira vez, o jogo pede o nome. Depois entra sempre na última conta, e a tecla N muda de conta.
+- **Base de dados SQLite** (`dados/headball.db`) com duas tabelas:
+  - `jogadores`: nome, data de criação e último acesso;
+  - `partidas`: data, modo, adversário, golos, resultado, pontos e nível.
+  - **Pontos:** vitória 3, empate 1, derrota 0. No competitivo, cada vitória vale mais o número do nível.
+- **Histórico** das últimas 10 partidas, com GANHOU, EMPATE ou PERDEU.
+- **Estatísticas:** pontos, partidas, vitórias (com %), empates, derrotas, golos marcados e sofridos, média de golos, maior sequência de vitórias, melhor nível no competitivo e **top 5** de todos os jogadores.
+- **Modo competitivo:** 5 níveis de bot, de Estreante a Lenda, e depois "Lenda +1", "+2"…
+  - Em cada nível o bot fica mais rápido, chuta e salta mais vezes.
+  - Ganhar passa ao nível seguinte. Perder ou empatar acaba a corrida.
+  - As partidas duram 45 s.
+- **Power-ups** que aparecem a cada 8 a 12 segundos:
+  - **Velocidade:** ×1,45 durante 6 s.
+  - **Super chuto:** ×1,8 durante 6 s.
+  - **Super salto:** ×1,3 durante 6 s.
+  - **Gelo:** congela o adversário 2,5 s.
+- **Ficheiro de texto** `dados/resultados.txt`, reescrito depois de cada partida, com uma linha por partida (requisito R3).
+- **Tudo o que já existia:** física com pernas articuladas, "bola ao ar", fotos pela webcam ou de ficheiro, 5 estádios animados e comandos.
 
 **Falta:**
 
-- **R3 (objetivo do Sprint 2):** não há nenhuma lista de resultados nem nenhum ficheiro de pontuações. Os resultados perdem-se quando o jogo fecha.
-- **R4:** ainda não há casos de teste escritos nem README final (o README do repositório é um primeiro rascunho).
-- Mensagem visível para teclas inválidas no menu (ver secção 2).
-- Separar o código em módulos (ver secção 3).
-- O tempo da partida é contado por frames (`time_left -= 1/60`). Num computador lento o jogo fica abaixo de 60 frames por segundo e a partida demora mais do que 60 segundos reais.
-- Privacidade das fotos: o jogo não pede consentimento antes de tirar a foto e as fotos só são apagadas quando se carrega em X. Numa exposição pública isto é importante.
-- Pormenor de limpeza: em `make_lisboa_anim()` a lista `sparkles` é calculada duas vezes e a primeira linha não serve para nada.
-
-**Plano para o R3 no Sprint 2:**
-
-1. No fim de cada partida, criar um resultado com a data, o modo, o nome dos jogadores e o marcador, e acrescentá-lo a uma **lista** `resultados`.
-2. Guardar em `resultados.txt`, uma linha por partida, por exemplo `2026-12-01 14:30;1 jogador;Tiago;Bot;6;5`.
-3. Criar as funções `guardar_resultado(ficheiro, resultado)`, `ler_resultados(ficheiro) -> lista` e `top5(resultados) -> lista`.
-4. Em `ler_resultados`, ignorar as linhas estragadas com `try/except`, em vez de o jogo falhar.
-5. Acrescentar ao menu uma opção "P = Pontuações" que mostra o top 5.
-6. Opcional, e reforça o R1: pedir o nome do jogador com validação (máximo 12 caracteres, só letras e números; se ficar vazio usa "Jogador 1"), mostrando "Nome inválido" quando for preciso.
+- **Jogo online:** decidimos não o fazer neste sprint.
+  - Um jogo de física em tempo real online precisa de um servidor, de sincronizar a bola 60 vezes por segundo e de lidar com o atraso da rede.
+  - Também obriga a abrir portas e a validar tudo o que chega da rede. Feito à pressa, ficava instável e inseguro.
+  - Fica como objetivo possível do Sprint 3, começando por **rede local (LAN)**.
+- **Tempo da partida:** continua a ser contado por frames. Num PC lento, a partida demora mais do que o tempo indicado.
+- **Fotos:** o jogo ainda não pede consentimento antes de tirar a foto.
+- **Modo 2 jogadores:** a partida só fica na conta do J1. O J2 não tem conta própria.
 
 ## 5. Product Backlog atualizado
 
-| # | História | Requisito | Estado | Observações |
-|---|---|---|---|---|
-| 1 | Como jogador, quero um menu que só aceite opções válidas, para não estragar o jogo sem querer. | R1 | **Em curso** | Teclas inválidas ignoradas e ficheiros inválidos tratados; falta a mensagem visível. |
-| 2 | Como jogador, quero jogar uma partida de 60 segundos contra o computador ou contra um amigo. | R2 | **Feito** | Testada em modo 1 e modo 2. |
-| 3 | Como programador, quero o código separado em módulos com funções, para ser fácil de manter. | R2 | **Por fazer** | Já há 114 funções e 7 classes, mas está tudo num ficheiro. |
-| 4 | Como jogador, quero que os resultados fiquem guardados num ficheiro e ver o top 5. | R3 | **Por fazer** | Objetivo do Sprint 2 (plano na secção 4). |
-| 5 | Como jogador, quero dar consentimento antes da foto e que ela seja apagada no fim. | Extra | **Em curso** | A tecla X já apaga as fotos; falta o consentimento e apagar automaticamente ao sair. |
-| 6 | Como jogador, quero escolher o estádio. | Extra | **Feito** | 5 estádios; a escolha fica guardada em `heads/estadio.txt`. |
-| 7 | Como jogador, quero escolher a dificuldade do bot e ter um tempo real de 60 s. | Extra | **Por fazer** | O bot tem uma única velocidade (4.4); o tempo é contado por frames. |
-| 8 | Como professor, quero um README e 5 casos de teste. | R4 | **Em curso** | Há um rascunho do README; os testes ainda não estão escritos. |
-| 9 | Como jogador, quero jogar com um comando de PS5, PS4 ou Xbox. | Extra | **Feito** | História nova, feita neste sprint. |
-| 10 | Como jogador, quero usar uma foto do computador se não tiver webcam. | Extra | **Feito** | História nova (tecla F no ecrã da câmara). |
-| 11 | Como jogador, quero que a bola não fique presa entre os dois jogadores. | Extra | **Feito** | História nova: regra "bola ao ar" ao fim de 3 s. |
+| # | História | Req. | Estado |
+|---|---|---|---|
+| 1 | Como jogador, quero um menu que só aceite opções válidas. | R1 | **Feito** |
+| 2 | Como jogador, quero jogar uma partida contra o computador ou contra um amigo. | R2 | **Feito** |
+| 3 | Como programador, quero o código separado em módulos. | R2 | **Em curso** (3 módulos + testes) |
+| 4 | Como jogador, quero que os resultados fiquem guardados num ficheiro e ver o top 5. | R3 | **Feito** (SQLite + resultados.txt) |
+| 5 | Como jogador, quero dar consentimento antes da foto e que ela seja apagada no fim. | Extra | **Em curso** (X apaga as fotos) |
+| 6 | Como jogador, quero escolher o estádio. | Extra | **Feito** |
+| 7 | Como jogador, quero escolher a dificuldade do bot e ter um tempo real. | Extra | **Em curso** (níveis no competitivo; tempo ainda por frames) |
+| 8 | Como professor, quero um README e 5 casos de teste. | R4 | **Feito** (7 testes; README atualizado) |
+| 9 | Como jogador, quero jogar com um comando. | Extra | **Feito** |
+| 10 | Como jogador, quero usar uma foto do computador se não tiver webcam. | Extra | **Feito** |
+| 11 | Como jogador, quero que a bola não fique presa entre os jogadores. | Extra | **Feito** |
+| 12 | Como jogador, quero ter uma conta com o meu nome e os meus pontos. | Extra | **Feito** |
+| 13 | Como jogador, quero ver o histórico das minhas partidas. | Extra | **Feito** |
+| 14 | Como jogador, quero ver as minhas estatísticas. | Extra | **Feito** |
+| 15 | Como jogador, quero power-ups durante a partida. | Extra | **Feito** |
+| 16 | Como jogador, quero um modo competitivo contra bots cada vez mais difíceis. | Extra | **Feito** |
+| 17 | Como jogador, quero jogar contra outra pessoa noutro computador. | Extra | **Por fazer** (Sprint 3, LAN) |
 
 ## 6. Registo do Sprint
 
@@ -113,13 +124,14 @@ A classe `Match` não desenha nada, só tem a lógica. Isso permitiu testar part
 | André Filipe | [a preencher] | [a preencher] | [ ] |
 | Guilherme Lopes | [a preencher] | [a preencher] | [ ] |
 
-**Dificuldades e decisões:** [a preencher: por exemplo, porque mudaram de modo de texto para pygame, problemas com a webcam ou com os comandos]
+**Dificuldades e decisões:** [a preencher: por exemplo, porque escolheram SQLite, porque deixaram o jogo online para depois]
 
 ## 7. Uso de IA
 
-| Ferramenta | Para que foi usada | Como verificámos o resultado |
+| Ferramenta | Para que foi usada | Como verificámos |
 |---|---|---|
-| Claude (Anthropic) | Gerar o mapa de funções e o rascunho desta nota a partir do código, e preparar o README e o repositório do GitHub. | O número de funções do mapa foi comparado automaticamente com o código (114 = 114). [a preencher: a equipa leu e corrigiu as descrições?] |
-| [a preencher] | [a preencher: por exemplo, partes do código, física, webcam] | [a preencher: por exemplo, testámos a jogar, lemos e percebemos o código] |
+| Claude (Anthropic) | Apoio na escrita de partes do código (incluindo a base de dados, os power-ups e o modo competitivo) | Lemos e percebemos o código antes de o integrar, corremos os 7 testes e testámos a jogar |
+| Claude (Anthropic) | Deteção e correção de erros (por exemplo, as animações do cenário passavam por cima das balizas) | Aplicámos as correções e testámos o jogo nos 5 estádios |
+| Claude (Anthropic) | Apoio na documentação: mapa de funções, nota de progresso e README, feitos a partir do código | Revimos os textos; o mapa foi comparado automaticamente com o código (150 = 150) |
 
-Os testes sem janela referidos nas secções 2 e 3 também foram feitos com a ajuda da IA. A equipa deve repeti-los ou confirmá-los a jogar antes de entregar.
+A ideia, as decisões de design, os testes a jogar e a integração final foram feitos pela equipa.

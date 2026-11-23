@@ -25,6 +25,9 @@ import sys
 
 import pygame
 
+import base_dados as bd      # contas, histórico e estatísticas (SQLite)
+import powerups as pw        # power-ups durante a partida
+
 try:
     import numpy as np
 except ImportError:
@@ -517,6 +520,7 @@ class Player:
         self.on_ground = True
         self.kick_cd = 0
         self.kick_hit = False
+        self.efeitos = {}                # power-ups ativos: {"velocidade": frames que faltam, ...}
         self.walk = 0.0
         self.legs = [Leg(), Leg()]      # 0 = perna que chuta (da frente), 1 = perna de trás
         for _ in range(30):
@@ -576,6 +580,10 @@ class Player:
 
     def update(self, left, right, jump, kick, speed=SPEED, face=None):
         prev_vx = self.vx
+        if "gelo" in self.efeitos:                              # congelado: ignora os comandos
+            left = right = jump = kick = False
+        if "velocidade" in self.efeitos:
+            speed *= pw.MULT_VELOCIDADE
         self.vx = (right - left) * speed
         if face is not None:
             self.facing = face
@@ -584,7 +592,7 @@ class Player:
         elif right and not left:
             self.facing = 1
         if jump and self.on_ground:
-            self.vy = -JUMP
+            self.vy = -JUMP * (pw.MULT_SALTO if "salto" in self.efeitos else 1)
         if kick and self.kick_cd == 0:
             self.kick_cd = KICK_FRAMES + KICK_COOLDOWN
             self.kick_hit = False
@@ -598,6 +606,7 @@ class Player:
         self.update_legs(self.vx - prev_vx)
         if self.kick_cd > 0:
             self.kick_cd -= 1
+        self.efeitos = pw.atualizar_efeitos(self.efeitos)
         self.track()
 
     def clamp_x(self):
@@ -623,8 +632,9 @@ class Player:
         if not isinstance(key, tuple):
             return
         if key[0] == 0 and self.kick_cd > KICK_COOLDOWN and not self.kick_hit:
-            ball.vx += self.facing * 6                          # remate
-            ball.vy -= 5                                        # e levanta a bola
+            forca = pw.MULT_CHUTO if "super_chuto" in self.efeitos else 1
+            ball.vx += self.facing * 6 * forca                  # remate
+            ball.vy -= 5 * (1 + (forca - 1) / 2)                # e levanta a bola
             self.kick_hit = True
         elif math.hypot(*cvel) > 6:
             ball.vy -= 2.5
@@ -672,7 +682,25 @@ def resolve_ball(ball, players):
     return touched, impact
 
 
-def bot_controls(bot, ball):
+# Modo competitivo: cada vitória sobe de nível; uma derrota ou um empate acaba a corrida.
+# (nome, velocidade do bot, probabilidade de chutar, probabilidade de saltar)
+NIVEIS = [("Estreante", 4.0, 0.30, 0.10), ("Amador", 4.4, 0.40, 0.15), ("Profissional", 5.0, 0.50, 0.20),
+          ("Estrela", 5.6, 0.60, 0.25), ("Lenda", 6.2, 0.75, 0.30)]
+TEMPO_COMPETITIVO = 45
+
+
+def nivel_bot(n):
+    """Dificuldade do bot no nível n (1, 2, 3...). Depois do último nível o bot continua a ficar mais rápido."""
+    if n <= len(NIVEIS):
+        nome, vel, chuto, salto = NIVEIS[n - 1]
+    else:
+        extra = n - len(NIVEIS)
+        nome, vel, chuto, salto = NIVEIS[-1]
+        nome, vel = f"{nome} +{extra}", min(7.5, vel + 0.3 * extra)
+    return {"nome": nome, "velocidade": vel, "chuto": chuto, "salto": salto}
+
+
+def bot_controls(bot, ball, chuto=0.4, salto=0.15):
     if ball.x < W * 0.35:
         target = max(ball.x + 90, W * 0.58)
     else:
@@ -680,10 +708,10 @@ def bot_controls(bot, ball):
     dx = target - bot.x
     left, right = dx < -12, dx > 12
     near = abs(ball.x - bot.x) < 150
-    jump = near and ball.y < bot.y - 30 and ball.vy > -2 and random.random() < 0.15
+    jump = near and ball.y < bot.y - 30 and ball.vy > -2 and random.random() < salto
     hip_x, hip_y = bot.hip
     dist = math.hypot(ball.x - hip_x, ball.y - hip_y)
-    kick = (ball.x < bot.x + 5 and dist < 70 and ball.y > hip_y - 45 and random.random() < 0.4)
+    kick = (ball.x < bot.x + 5 and dist < 70 and ball.y > hip_y - 45 and random.random() < chuto)
     return left, right, jump, kick
 
 
@@ -1712,7 +1740,9 @@ class Pads:
         if state == "game":
             return pygame.K_ESCAPE if name == "BACK" else None
         if state == "over":
-            return pygame.K_RETURN if name in ("A", "START") else None
+            return {"A": pygame.K_RETURN, "START": pygame.K_RETURN, "BACK": pygame.K_ESCAPE}.get(name)
+        if state in ("historico", "estatisticas"):
+            return pygame.K_ESCAPE if name in ("A", "B", "START", "BACK") else None
         return None
 
 
@@ -1739,13 +1769,18 @@ def read_inputs(keys, pad_states, mode):
 class Match:
     """Toda a lógica de uma partida (sem desenho), para ser fácil de testar."""
 
-    def __init__(self, mode, heads):
-        self.mode = mode
+    def __init__(self, mode, heads, nivel=1, nomes=("Jogador 1", "Jogador 2")):
+        """mode: 1 = contra o bot, 2 = dois jogadores, 3 = competitivo (bot do nível indicado)."""
+        self.mode, self.nivel = mode, nivel
         self.p1 = Player(0, W * 0.25, 1, heads[0])
         self.p2 = Player(1, W * 0.75, -1, heads[1])
         self.ball = Ball()
         self.score = [0, 0]
-        self.time_left = float(MATCH_TIME)
+        self.bot = nivel_bot(nivel if mode == 3 else 2)          # o modo 1 usa sempre o bot "Amador"
+        self.nomes = list(nomes) if mode == 2 else [nomes[0], "Bot " + self.bot["nome"] if mode == 3 else "Bot"]
+        self.time_left = float(TEMPO_COMPETITIVO if mode == 3 else MATCH_TIME)
+        self.pw = {"lista": [], "espera": 300}                  # primeiro power-up aos 5 segundos
+        self.aviso, self.aviso_t = "", 0
         self.pause, self.banner = 0, ""
         self.parts, self.shake = [], 0.0
         self.stuck, self.last_touch, self.jumpball = 0, [99, 99], 0
@@ -1753,7 +1788,7 @@ class Match:
 
     def goal(self, scorer):
         self.score[scorer] += 1
-        self.banner, self.pause, self.shake = f"GOLO do Jogador {scorer + 1}!", 110, 10
+        self.banner, self.pause, self.shake = f"GOLO de {self.nomes[scorer]}!", 110, 10
         gx = GOAL_W if scorer == 1 else W - GOAL_W
         spawn(self.parts, gx, CROSSBAR_Y, 90, [(255, 80, 80), (255, 230, 80), (80, 200, 255), WHITE], 6, 10, 50, 2)
 
@@ -1768,12 +1803,20 @@ class Match:
             return
         if self.jumpball == 0:
             self.time_left -= 1 / 60
+        if self.aviso_t > 0:
+            self.aviso_t -= 1
         p1.update(*in1)
-        if self.mode == 1:
-            l, r, j, k = bot_controls(p2, ball)
-            p2.update(l, r, j, k, speed=4.4, face=-1)
+        if self.mode in (1, 3):
+            l, r, j, k = bot_controls(p2, ball, self.bot["chuto"], self.bot["salto"])
+            p2.update(l, r, j, k, speed=self.bot["velocidade"], face=-1)
         else:
             p2.update(*in2)
+        if self.jumpball == 0:
+            apanhado = pw.passo_powerups(self.pw, (p1, p2), XMIN, XMAX, GROUND - BODY_H - HEAD_R + 10)
+            if apanhado:
+                quem, texto = apanhado
+                self.aviso, self.aviso_t = f"{self.nomes[quem.slot]}: {texto}!", 90
+                spawn(self.parts, quem.x, quem.y, 30, [(255, 240, 120), WHITE, (120, 220, 255)], 4, 4, 30, 1, 0.1)
         d = p2.x - p1.x
         if abs(d) < HEAD_R * 1.6 and abs(p1.y - p2.y) < HEAD_R * 1.6:
             push = (HEAD_R * 1.6 - abs(d)) / 2 * (1 if d >= 0 else -1)
@@ -1844,6 +1887,101 @@ def draw_controls(low, fn, pads):
     ptext(low, fn["sm"], "TAB / ESC  voltar", LW - 16, 141, WHITE, align="right")
 
 
+def painel(low, x, y, w, h, alpha=200):
+    """Retângulo escuro semitransparente para os ecrãs de texto."""
+    p = pygame.Surface((w, h), pygame.SRCALPHA)
+    p.fill((8, 10, 30, alpha))
+    low.blit(p, (x, y))
+
+
+def draw_powerups(low, fn, m, tick):
+    """Desenha os power-ups no campo, o gelo nos jogadores congelados, os efeitos ativos e o aviso de quem apanhou."""
+    for pu in m.pw["lista"]:
+        if pu.vida < 120 and (tick // 6) % 2:                   # pisca antes de desaparecer
+            continue
+        texto, _, cor, _ = pw.TIPOS[pu.tipo]
+        x, y = I(pu.x), I(pu.y) + int(math.sin(tick * 0.12) * 2)
+        pygame.draw.circle(low, OUTLINE, (x, y), 8)
+        pygame.draw.circle(low, cor, (x, y), 7)
+        pygame.draw.circle(low, WHITE, (x - 2, y - 3), 2)
+        simbolo = {"velocidade": ">>", "super_chuto": "!", "salto": "^", "gelo": "*"}[pu.tipo]
+        ptext(low, fn["sm"], simbolo, x, y + 1, OUTLINE, shadow=False)
+    for pl in (m.p1, m.p2):
+        if "gelo" in pl.efeitos:
+            gelo = pygame.Surface((I(HEAD_R * 2) + 6, I(HEAD_R * 2 + BODY_H) + 6), pygame.SRCALPHA)
+            gelo.fill((150, 220, 255, 110))
+            low.blit(gelo, (I(pl.x - HEAD_R) - 3, I(pl.y - HEAD_R) - 3))
+        icones = [k for k in pl.efeitos]
+        for n, k in enumerate(icones):                          # efeitos ativos por baixo do retrato
+            cor = pw.TIPOS[k][2]
+            bx = (LW // 2 - 76 - 20 * n) if pl.slot == 0 else (LW // 2 + 58 + 20 * n)
+            frac = pl.efeitos[k] / pw.TIPOS[k][1]
+            pygame.draw.rect(low, OUTLINE, (bx, 22, 18, 4))
+            pygame.draw.rect(low, cor, (bx + 1, 23, max(1, int(16 * frac)), 2))
+    if m.aviso_t > 0:
+        ptext(low, fn["mid"], m.aviso, LW // 2, 49, (255, 240, 150))
+
+
+def draw_nome(low, fn, texto, erro, tick):
+    """Ecrã para escrever o nome do jogador (a conta)."""
+    painel(low, 16, 30, LW - 32, 82)
+    ptext(low, fn["big"], "QUEM VAI JOGAR?", LW // 2, 44, (255, 230, 80))
+    ptext(low, fn["sm"], f"Escreve o teu nome (máx. {bd.NOME_MAX}) e carrega ENTER", LW // 2, 58, (170, 210, 255))
+    pygame.draw.rect(low, OUTLINE, (LW // 2 - 60, 66, 120, 16))
+    pygame.draw.rect(low, (240, 240, 250), (LW // 2 - 59, 67, 118, 14))
+    cursor = "_" if (tick // 30) % 2 else " "
+    ptext(low, fn["mid"], texto + cursor, LW // 2, 74, OUTLINE, shadow=False)
+    if erro:
+        ptext(low, fn["sm"], erro, LW // 2, 92, (255, 120, 120))
+    else:
+        ptext(low, fn["sm"], "Nome que já existe = continuas essa conta", LW // 2, 92, (200, 200, 200))
+    ptext(low, fn["sm"], "ESC  voltar", LW // 2, 102, WHITE)
+
+
+def draw_historico(low, fn, nome, hist):
+    """Ecrã com as últimas 10 partidas do jogador."""
+    painel(low, 8, 5, LW - 16, 145, 215)
+    ptext(low, fn["big"], "HISTÓRICO", LW // 2, 16, (255, 230, 80))
+    ptext(low, fn["sm"], nome, LW // 2, 30, (160, 200, 255))
+    if not hist:
+        ptext(low, fn["mid"], "Ainda não jogaste nenhuma partida.", LW // 2, 70)
+    cores = {"V": (120, 230, 120), "E": (255, 220, 100), "D": (255, 120, 120)}
+    for i, h in enumerate(hist[:10]):
+        y = 42 + i * 10
+        modo = f"Comp N{h['nivel']}" if h["nivel"] else {"2 jogadores": "2 jog."}.get(h["modo"], h["modo"])
+        data = f"{h['data'][8:10]}/{h['data'][5:7]}"
+        ptext(low, fn["sm"], data, 16, y, (200, 200, 200), align="left")
+        ptext(low, fn["sm"], modo, 46, y, WHITE, align="left")
+        ptext(low, fn["sm"], h["adversario"][:13], 92, y, WHITE, align="left")
+        ptext(low, fn["sm"], f"{h['golos_marcados']} - {h['golos_sofridos']}", 186, y, WHITE)
+        ptext(low, fn["sm"], bd.TEXTO_RESULTADO[h["resultado"]], LW - 16, y, cores[h["resultado"]], align="right")
+    ptext(low, fn["sm"], "ESC  voltar", LW // 2, 143, WHITE)
+
+
+def draw_estatisticas(low, fn, nome, est, top):
+    """Ecrã com as estatísticas do jogador e o top 5 de todos os jogadores."""
+    painel(low, 8, 5, LW - 16, 145, 215)
+    ptext(low, fn["big"], "ESTATÍSTICAS", LW // 2, 16, (255, 230, 80))
+    ptext(low, fn["sm"], nome, 80, 31, (160, 200, 255))
+    linhas = [("Pontos", est["pontos"]), ("Partidas", est["partidas"]),
+              ("Vitórias", f"{est['vitorias']}  ({est['percentagem_vitorias']}%)"), ("Empates", est["empates"]),
+              ("Derrotas", est["derrotas"]), ("Golos marcados", est["golos_marcados"]),
+              ("Golos sofridos", est["golos_sofridos"]), ("Média de golos", est["media_golos"]),
+              ("Vitórias seguidas", est["melhor_sequencia"]), ("Melhor nível comp.", est["melhor_nivel"] or "-")]
+    for i, (k, v) in enumerate(linhas):
+        y = 42 + i * 9
+        ptext(low, fn["sm"], k, 18, y, (200, 200, 200), align="left")
+        ptext(low, fn["sm"], str(v), 140, y, WHITE, align="right")
+    pygame.draw.rect(low, (80, 90, 140), (150, 30, 1, 100))
+    ptext(low, fn["sm"], "TOP 5 (pontos)", 210, 31, (255, 230, 80))
+    for i, (n, pts, vit) in enumerate(top):
+        y = 42 + i * 11
+        cor = (160, 230, 160) if n.lower() == nome.lower() else WHITE
+        ptext(low, fn["sm"], f"{i + 1}. {n}", 158, y, cor, align="left")
+        ptext(low, fn["sm"], str(pts), LW - 18, y, cor, align="right")
+    ptext(low, fn["sm"], "ESC  voltar", LW // 2, 143, WHITE)
+
+
 def main():
     pygame.init()
     screen = pygame.display.set_mode((W, H))
@@ -1856,12 +1994,29 @@ def main():
     pads = Pads()
     f_cap = pygame.font.SysFont("arial", 22, bold=True)
     fn = {"big": pygame.font.Font(None, 34), "score": pygame.font.Font(None, 26),
-          "mid": pygame.font.Font(None, 20), "sm": pygame.font.Font(None, 15)}
+          "mid": pygame.font.Font(None, 20), "sm": pygame.font.Font(None, 15), "menu": pygame.font.Font(None, 17)}
     heads, ports = load_heads()
 
-    state, mode, msg = "menu", 1, ""
+    try:                                                        # base de dados das contas
+        conn = bd.ligar()
+        conta = bd.ultimo_jogador(conn)
+    except Exception as erro:                                   # sem base de dados o jogo funciona na mesma
+        conn, conta = None, None
+        print("Base de dados indisponível:", erro)
+
+    state, mode, msg = ("menu" if conta or conn is None else "nome"), 1, ""
+    nome_txt, nome_erro = "", ""
+    hist, est, top = [], None, []
+    resumo, nivel = None, 1                                     # resultado da última partida e nível competitivo
+    pts = None                                                  # pontos do jogador (lidos da base de dados quando mudam)
     m = None
     tick = 0
+    teclas_menu = {pygame.K_ESCAPE, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_TAB, pygame.K_x,
+                   pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_h, pygame.K_e, pygame.K_n}
+
+    def nova_partida(modo, n=1):
+        nome = conta[1] if conta else "Jogador 1"
+        return Match(modo, heads, n, (nome, "Jogador 2"))
 
     while True:
         pads.update(tick)
@@ -1869,6 +2024,27 @@ def main():
             if e.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            if state == "nome" and e.type == pygame.KEYDOWN:     # escrever o nome
+                if e.key == pygame.K_RETURN:
+                    ok, res = bd.validar_nome(nome_txt)
+                    if ok:
+                        conta = bd.entrar(conn, res)
+                        msg, nome_txt, nome_erro, state, pts = f"Olá, {conta[1]}!", "", "", "menu", None
+                    else:
+                        nome_erro = res
+                elif e.key == pygame.K_BACKSPACE:
+                    nome_txt, nome_erro = nome_txt[:-1], ""
+                elif e.key == pygame.K_ESCAPE:
+                    if conta:
+                        state, nome_txt, nome_erro = "menu", "", ""
+                    else:
+                        nome_erro = "Escreve um nome para criar a tua conta."
+                elif e.unicode and e.unicode.isprintable():
+                    if len(nome_txt) < bd.NOME_MAX:
+                        nome_txt += e.unicode
+                    else:
+                        nome_erro = f"Máximo {bd.NOME_MAX} caracteres."
+                continue
             key = e.key if e.type == pygame.KEYDOWN else pads.event_key(e, state)
             if key is None:
                 continue
@@ -1892,15 +2068,33 @@ def main():
                             os.remove(pth)
                     heads, ports = load_heads()
                     msg = "Fotos apagadas."
-                if key in (pygame.K_1, pygame.K_2):
-                    mode = 1 if key == pygame.K_1 else 2
-                    m = Match(mode, heads)
-                    state = "game"
+                if key in (pygame.K_1, pygame.K_2, pygame.K_3):
+                    mode = {pygame.K_1: 1, pygame.K_2: 2, pygame.K_3: 3}[key]
+                    nivel = 1
+                    m = nova_partida(mode, nivel)
+                    state, msg = "game", ""
+                if key in (pygame.K_h, pygame.K_e, pygame.K_n) and conn is None:
+                    msg = "Base de dados indisponível."
+                elif key == pygame.K_n:
+                    state, nome_txt, nome_erro = "nome", "", ""
+                elif key == pygame.K_h and conta:
+                    hist, state = bd.ler_historico(conn, conta[0]), "historico"
+                elif key == pygame.K_e and conta:
+                    est, top, state = bd.ler_estatisticas(conn, conta[0]), bd.ranking(conn), "estatisticas"
+                if key not in teclas_menu and e.type == pygame.KEYDOWN and e.unicode.isprintable() and e.unicode:
+                    msg = "Tecla inválida! Usa as teclas do menu."
             elif state == "controls":
                 if key in (pygame.K_ESCAPE, pygame.K_TAB, pygame.K_RETURN):
                     state = "menu"
+            elif state in ("historico", "estatisticas"):
+                if key in (pygame.K_ESCAPE, pygame.K_RETURN):
+                    state = "menu"
             elif state == "over" and key in (pygame.K_RETURN, pygame.K_ESCAPE):
-                state = "menu"
+                if key == pygame.K_RETURN and m.mode == 3 and resumo and resumo["resultado"] == "V":
+                    nivel += 1                                          # competitivo: próximo nível
+                    m, state = nova_partida(3, nivel), "game"
+                else:
+                    state = "menu"
             elif state == "game" and key == pygame.K_ESCAPE:
                 state = "menu"
 
@@ -1912,37 +2106,60 @@ def main():
             m.step(*read_inputs(keys, pads.states(), m.mode))
             if m.over:
                 state = "over"
+                resumo = {"resultado": bd.calcular_resultado(*m.score), "pontos": None}
+                if conn is not None and conta:                         # guarda a partida na conta do J1
+                    try:
+                        modo_txt = {1: "vs Bot", 2: "2 jogadores", 3: "Competitivo"}[m.mode]
+                        resumo = bd.guardar_partida(conn, conta[0], modo_txt, m.nomes[1], m.score[0], m.score[1],
+                                                    m.nivel if m.mode == 3 else None)
+                        bd.exportar_txt(conn)
+                        pts = None
+                    except Exception as erro:
+                        print("Não foi possível guardar a partida:", erro)
 
-        if state in ("menu", "controls", "game", "over"):
+        if state in ("menu", "controls", "game", "over", "nome", "historico", "estatisticas"):
             low.blit(bg, (0, 0))
             if anim:
                 run_anim(anim, low, tick)
 
         if state == "menu":
-            panel = pygame.Surface((LW - 70, 112), pygame.SRCALPHA)
-            panel.fill((8, 10, 30, 150))
-            low.blit(panel, (35, 6))
+            painel(low, 35, 6, LW - 70, 112, 150)
             ptext(low, fn["big"], "HEAD BALL", LW // 2, 20, (255, 230, 80))
-            ptext(low, fn["sm"], "cabeças da webcam", LW // 2, 36, (160, 200, 255))
-            items = ["1   1 jogador vs Bot", "2   2 jogadores", "C   foto J1       V   foto J2 / Bot",
-                     f"B   estádio: {backgrounds[bg_i][0]}", "TAB   controlos",
-                     "X   apagar fotos     ESC   sair"]
+            if conta:
+                if pts is None:
+                    pts = bd.ler_estatisticas(conn, conta[0])["pontos"]
+                ptext(low, fn["sm"], f"Jogador: {conta[1]}   ·   {pts} pontos", LW // 2, 35, (150, 230, 160))
+            else:
+                ptext(low, fn["sm"], "cabeças da webcam", LW // 2, 35, (160, 200, 255))
+            items = ["1  vs Bot        2  2 jogadores", "3  Competitivo contra bots",
+                     "H  histórico     E  estatísticas", f"N  mudar jogador   B  {backgrounds[bg_i][0]}",
+                     "C / V  fotos     X  apagar fotos", "TAB  controlos     ESC  sair"]
             for i, t in enumerate(items):
-                ptext(low, fn["mid"], t, LW // 2, 50 + i * 10)
+                ptext(low, fn["menu"], t, LW // 2, 47 + i * 10)
             if msg:
-                mm = msg if len(msg) <= 44 else msg[:43] + "…"
-                ptext(low, fn["sm"], mm, LW // 2, 112, (255, 240, 120))
+                mm = msg if len(msg) <= 60 else msg[:59] + "…"
+                ptext(low, fn["sm"], mm, LW // 2, 110, (255, 240, 120))
             gl = I(GROUND)
             for i, cx in enumerate((LW // 2 - 62, LW // 2 + 62)):
                 heads_draw.append((heads[i], cx * PX, (gl - 14) * PX, False))
-                ptext(low, fn["sm"], "J1" if i == 0 else "J2 / BOT", cx, gl + 9)
+                ptext(low, fn["sm"], (conta[1] if conta else "J1") if i == 0 else "J2 / BOT", cx, gl + 9)
             if pads.short_status():
                 ptext(low, fn["sm"], pads.short_status(), LW // 2, gl + 9, (150, 230, 160))
+
+        elif state == "nome":
+            draw_nome(low, fn, nome_txt, nome_erro, tick)
+
+        elif state == "historico":
+            draw_historico(low, fn, conta[1], hist)
+
+        elif state == "estatisticas":
+            draw_estatisticas(low, fn, conta[1], est, top)
 
         elif state == "controls":
             draw_controls(low, fn, pads)
 
         elif state in ("game", "over"):
+            draw_powerups(low, fn, m, tick)
             draw_player(low, m.p1)
             draw_player(low, m.p2)
             draw_ball(low, m.ball)
@@ -1958,8 +2175,10 @@ def main():
             ptext(low, fn["sm"], f"{max(0, int(m.time_left))}", cx, 26, WHITE, shadow=False)
             heads_draw += [(ports[0], (cx - 62) * PX, 14 * PX, False),
                            (ports[1], (cx + 62) * PX, 14 * PX, False)]
-            ptext(low, fn["sm"], TEAMS[0]["name"], cx - 76, 14, (130, 180, 255), align="right")
-            ptext(low, fn["sm"], "BOT" if m.mode == 1 else TEAMS[1]["name"], cx + 76, 14, (255, 130, 130), align="left")
+            ptext(low, fn["sm"], m.nomes[0][:12], cx - 76, 14, (130, 180, 255), align="right")
+            ptext(low, fn["sm"], m.nomes[1][:12] if m.mode == 2 else "BOT", cx + 76, 14, (255, 130, 130), align="left")
+            if m.mode == 3:
+                ptext(low, fn["sm"], f"COMPETITIVO  ·  NÍVEL {m.nivel} ({m.bot['nome']})", cx, 37, (255, 200, 120))
             if m.banner:
                 bounce = int(math.sin(m.pause * 0.3) * 2)
                 ptext(low, fn["big"], "GOLO!", cx, 62 + bounce, (255, 230, 80))
@@ -1968,12 +2187,24 @@ def main():
                 ptext(low, fn["mid"], "BOLA AO AR!", cx, 66, (255, 230, 80))
                 ptext(low, fn["big"], str((m.jumpball + 59) // 60), cx, 83, WHITE)
             if state == "over":
-                pygame.draw.rect(low, OUTLINE, (cx - 100, 44, 200, 56))
-                pygame.draw.rect(low, (30, 36, 80), (cx - 99, 45, 198, 54))
-                res = ("EMPATE!" if m.score[0] == m.score[1] else
-                       f"VENCEU O JOGADOR {1 if m.score[0] > m.score[1] else 2}!")
-                ptext(low, fn["big"], res, cx, 60, (255, 230, 80))
-                ptext(low, fn["mid"], "ENTER para voltar ao menu", cx, 84)
+                pygame.draw.rect(low, OUTLINE, (cx - 110, 40, 220, 66))
+                pygame.draw.rect(low, (30, 36, 80), (cx - 109, 41, 218, 64))
+                r = resumo["resultado"] if resumo else bd.calcular_resultado(*m.score)
+                if m.mode == 2:
+                    res = "EMPATE!" if r == "E" else f"VENCEU {m.nomes[0 if r == 'V' else 1].upper()}!"
+                else:
+                    res = {"V": "GANHASTE!", "E": "EMPATE!", "D": "PERDESTE!"}[r]
+                ptext(low, fn["big"], res, cx, 54, (255, 230, 80))
+                if resumo and resumo.get("pontos") is not None:
+                    ptext(low, fn["mid"], f"+{resumo['pontos']} pontos para {m.nomes[0]}", cx, 70, (150, 230, 160))
+                if m.mode == 3 and r == "V":
+                    ptext(low, fn["sm"], f"Nível {m.nivel} superado!", cx, 84)
+                    ptext(low, fn["sm"], f"ENTER = nível {m.nivel + 1}    ESC = menu", cx, 96)
+                elif m.mode == 3:
+                    ptext(low, fn["sm"], f"Fim da corrida: chegaste ao nível {m.nivel}", cx, 84)
+                    ptext(low, fn["sm"], "ENTER = menu", cx, 96)
+                else:
+                    ptext(low, fn["mid"], "ENTER para voltar ao menu", cx, 86)
 
         shake = m.shake if (m is not None and state == "game") else 0.0
         ox = oy = 0
